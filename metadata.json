@@ -1,0 +1,6 @@
+{
+  "name": "Kovira Store & Dropship Manager",
+  "description": "Kovira online selling boutique featuring curated lifestyle essentials, designer western partywear gowns, cotton cambric dresses, and live supplier feeds with secure multi-currency checkout.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Kovira Store & Dropship Manager</title>
+    <meta name="description" content="Kovira is a modern online store featuring curated lifestyle essentials, smart home innovations, precision timepieces, and premium electronics with secure multi-currency checkout and fast express shipping." />
+    <meta property="og:title" content="Kovira Store & Dropship Manager" />
+    <meta property="og:description" content="Kovira is a modern online store featuring curated lifestyle essentials, smart home innovations, precision timepieces, and premium electronics with secure multi-currency checkout and fast express shipping." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400&family=Outfit:wght@500;600;700;800&family=Syne:wght@700;800&display=swap" rel="stylesheet">
+    <script>
+      // Gracefully prevent @vite/client WebSocket connection errors from bubbling in iframe environments
+      window.addEventListener('error', function(e) {
+        if (
+          (e && e.filename && e.filename.indexOf('@vite/client') !== -1) ||
+          (e && e.message && (e.message.indexOf('WebSocket') !== -1 || e.message.indexOf('@vite/client') !== -1 || e.message.indexOf('vite:ws') !== -1))
+        ) {
+          e.preventDefault();
+          e.stopPropagation();
+          e.stopImmediatePropagation && e.stopImmediatePropagation();
+          return true;
+        }
+      }, true);
+      window.addEventListener('unhandledrejection', function(e) {
+        if (
+          e && e.reason &&
+          typeof e.reason.message === 'string' &&
+          (e.reason.message.indexOf('WebSocket') !== -1 || e.reason.message.indexOf('@vite/client') !== -1)
+        ) {
+          e.preventDefault();
+          e.stopPropagation();
+          return true;
+        }
+      }, true);
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+
