@@ -114,8 +114,9 @@ export const DeoDapCatalogUploader: React.FC<DeoDapCatalogUploaderProps> = ({
                   title: itemObj['title'] || itemObj['name'] || 'DeoDap Dropship Item',
                   wholesaleINR: parseFloat(itemObj['wholesale'] || itemObj['cost'] || itemObj['price']) || 199,
                   stock: parseInt(itemObj['stock'] || itemObj['qty'] || '100', 10),
-                  category: itemObj['category'] || 'Lifestyle',
-                  image: itemObj['image'] || itemObj['image_url'] || 'https://images.unsplash.com/photo-1588854337236-6889d631faa8?w=800&q=80',
+                  category: itemObj['category'] || 'Lifestyle Essentials',
+                  image: itemObj['image'] || itemObj['images'] || itemObj['image_url'] || itemObj['image src'] || itemObj['photo'] || 'https://images.unsplash.com/photo-1588854337236-6889d631faa8?w=800&q=80',
+                  images: [itemObj['image'] || itemObj['images'] || itemObj['image_url'] || itemObj['image src'] || itemObj['photo'] || 'https://images.unsplash.com/photo-1588854337236-6889d631faa8?w=800&q=80'],
                   description: itemObj['description'] || 'Official DeoDap factory drop-ship inventory.',
                 });
               }

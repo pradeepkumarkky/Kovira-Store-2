@@ -5,6 +5,7 @@ import { computeProductLiveSync, SUPPORTED_LOCATIONS } from '../utils/supplierSy
 import { lookupPostalCode, PostalLocationResult } from '../utils/pincodeLookup';
 import { ProductReviewsSection } from './ProductReviewsSection';
 import { getProductRandomDiscount } from '../utils/discountBanner';
+import { normalizeProductImages } from '../utils/productNormalizer';
 import {
   X,
   Truck,
@@ -145,41 +146,46 @@ export const ProductModal: React.FC<ProductModalProps> = ({
         </div>
 
         {/* Product Media Column */}
-        <div className="w-full md:w-1/2 p-4 sm:p-6 flex flex-col justify-between bg-slate-50 border-b md:border-b-0 md:border-r border-slate-200 shrink-0">
-          <div className="relative aspect-square w-full rounded-2xl overflow-hidden bg-white border border-slate-200 shadow-inner">
-            <img
-              src={product.images[selectedImageIdx] || product.images[0]}
-              alt={product.title}
-              referrerPolicy="no-referrer"
-              className="w-full h-full object-cover"
-            />
-            {isLowStock && (
-              <div className="absolute bottom-3 left-3 bg-amber-50 text-amber-800 border border-amber-300 text-xs font-semibold px-3 py-1 rounded-full shadow-sm flex items-center gap-1.5">
-                <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
-                Only {stock} items available for {customerLocation?.country || 'your location'}
+        {(() => {
+          const productImages = normalizeProductImages(product);
+          return (
+            <div className="w-full md:w-1/2 p-4 sm:p-6 flex flex-col justify-between bg-slate-50 border-b md:border-b-0 md:border-r border-slate-200 shrink-0">
+              <div className="relative aspect-square w-full rounded-2xl overflow-hidden bg-white border border-slate-200 shadow-inner">
+                <img
+                  src={productImages[selectedImageIdx] || productImages[0]}
+                  alt={product.title}
+                  referrerPolicy="no-referrer"
+                  className="w-full h-full object-cover"
+                />
+                {isLowStock && (
+                  <div className="absolute bottom-3 left-3 bg-amber-50 text-amber-800 border border-amber-300 text-xs font-semibold px-3 py-1 rounded-full shadow-sm flex items-center gap-1.5">
+                    <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                    Only {stock} items available for {customerLocation?.country || 'your location'}
+                  </div>
+                )}
               </div>
-            )}
-          </div>
 
-          {/* Thumbnail strip */}
-          {product.images.length > 1 && (
-            <div className="flex gap-2 mt-3 sm:mt-4 overflow-x-auto pb-1 scrollbar-thin scrollbar-thumb-slate-300">
-              {product.images.map((img, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => setSelectedImageIdx(idx)}
-                  className={`w-14 h-14 rounded-xl overflow-hidden border-2 transition-all shrink-0 cursor-pointer ${
-                    selectedImageIdx === idx
-                      ? 'border-slate-900 ring-2 ring-slate-900/10'
-                      : 'border-slate-200 opacity-60 hover:opacity-100'
-                  }`}
-                >
-                  <img src={img} alt="" referrerPolicy="no-referrer" className="w-full h-full object-cover" />
-                </button>
-              ))}
+              {/* Thumbnail strip */}
+              {productImages.length > 1 && (
+                <div className="flex gap-2 mt-3 sm:mt-4 overflow-x-auto pb-1 scrollbar-thin scrollbar-thumb-slate-300">
+                  {productImages.map((img, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => setSelectedImageIdx(idx)}
+                      className={`w-14 h-14 rounded-xl overflow-hidden border-2 transition-all shrink-0 cursor-pointer ${
+                        selectedImageIdx === idx
+                          ? 'border-slate-900 ring-2 ring-slate-900/10'
+                          : 'border-slate-200 opacity-60 hover:opacity-100'
+                      }`}
+                    >
+                      <img src={img} alt="" referrerPolicy="no-referrer" className="w-full h-full object-cover" />
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
-          )}
-        </div>
+          );
+        })()}
 
         {/* Product Info & Action Column */}
         <div className="w-full md:w-1/2 p-4 sm:p-6 overflow-y-auto max-h-none md:max-h-[88vh] flex flex-col justify-between space-y-4 scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100">

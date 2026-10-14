@@ -35,6 +35,7 @@ import {
 } from 'lucide-react';
 import { Product, CurrencyCode, UploadedWebLink } from '../types';
 import { formatPrice } from '../utils/currency';
+import { normalizeProductImages, getPrimaryImage } from '../utils/productNormalizer';
 
 interface DeoDapBestsellerItem {
   deodapId: number;
@@ -347,21 +348,52 @@ export const DeoDapDirectLinkManager: React.FC<DeoDapDirectLinkManagerProps> = (
         loadUploadedLinks();
         if (onRefreshData) onRefreshData();
 
-        // Update local state if single product
-        if (data.product) {
-          setBestsellers((prev) =>
-            prev.map((item) =>
-              data.product?.supplierLink?.includes(item.handle)
-                ? {
-                    ...item,
-                    isLinkedToAdmin: true,
-                    isPublished: data.isPublished,
-                    alreadyInStore: data.isPublished,
-                    storeProductId: data.product?.id,
-                  }
-                : item
-            )
-          );
+        // Update local state for both single product and collection uploads
+        const incomingProducts: any[] = Array.isArray(data.products)
+          ? data.products
+          : (data.product ? [data.product] : []);
+
+        if (incomingProducts.length > 0) {
+          const formattedItems: DeoDapBestsellerItem[] = incomingProducts.map((prod: any) => {
+            const imgList = normalizeProductImages(prod);
+            const wINR = Number(prod.wholesaleINR || (prod.costUSD ? prod.costUSD * 86.5 : 120));
+            const rINR = Number(prod.retailINR || Math.round(wINR * (1 + marginPercent / 100)));
+            const pINR = Number(prod.profitINR || Math.round(wINR * (marginPercent / 100)));
+
+            return {
+              deodapId: typeof prod.id === 'number' ? prod.id : Math.floor(10000 + Math.random() * 90000),
+              handle: (prod.supplierLink || '').split('/').pop() || (prod.sku || `sku-${Date.now()}`).toLowerCase(),
+              title: prod.title || prod.name || 'Curated Item',
+              cleanDescription: prod.description || 'Verified factory direct item',
+              wholesaleINR: wINR,
+              compareINR: Math.round(wINR * 1.5),
+              retailINR: rINR,
+              profitINR: pINR,
+              marginPercent: prod.marginPercent || marginPercent,
+              deliveryChargeINR: prod.deliveryChargeINR || 49,
+              costUSD: prod.costUSD || Number((wINR / 86.5).toFixed(2)),
+              priceUSD: prod.priceUSD || Number((rINR / 86.5).toFixed(2)),
+              sku: prod.sku || `DD-${Date.now()}`,
+              stock: prod.stock || 120,
+              isAvailable: true,
+              images: imgList,
+              primaryImage: imgList[0],
+              supplierLink: prod.supplierLink || '',
+              isLinkedToAdmin: true,
+              isPublished: Boolean(publishImmediatelyUrl),
+              alreadyInStore: Boolean(publishImmediatelyUrl),
+              storeProductId: prod.id,
+              tags: prod.tags || ['DeoDap', 'Bestseller'],
+              vendor: prod.supplierName || 'DeoDap',
+              productType: prod.category || 'Lifestyle Essentials',
+            };
+          });
+
+          setBestsellers((prev) => {
+            const handleSet = new Set(formattedItems.map((f) => f.handle));
+            const filteredPrev = prev.filter((p) => !handleSet.has(p.handle));
+            return [...formattedItems, ...filteredPrev];
+          });
         }
       } else {
         throw new Error(data.error || 'Could not import product link.');
@@ -1017,14 +1049,14 @@ export const DeoDapDirectLinkManager: React.FC<DeoDapDirectLinkManagerProps> = (
                       {urlImportResult.supplierName || 'DeoDap Supplier'}
                     </div>
                     <img
-                      src={urlImportResult.product.images[0]}
-                      alt={urlImportResult.product.title}
+                      src={getPrimaryImage(urlImportResult.product)}
+                      alt={urlImportResult.product.title || urlImportResult.product.name}
                       className="w-14 h-14 object-cover rounded-xl border border-slate-700 shadow-xs"
                     />
                   </div>
                   <div className="space-y-1">
                     <div className="font-bold text-white text-sm line-clamp-1">
-                      {urlImportResult.product.title}
+                      {urlImportResult.product.title || urlImportResult.product.name}
                     </div>
                     <div className="flex flex-wrap items-center gap-3 text-slate-300 text-xs">
                       <span>Wholesale Cost: <strong className="text-slate-100 font-mono">₹{urlImportResult.wholesaleINR}</strong></span>
@@ -1078,12 +1110,12 @@ export const DeoDapDirectLinkManager: React.FC<DeoDapDirectLinkManagerProps> = (
                           {urlImportResult.supplierName || 'DeoDap Supplier'}
                         </div>
                         <img
-                          src={p.images[0]}
-                          alt={p.title}
+                          src={getPrimaryImage(p)}
+                          alt={p.title || p.name}
                           className="w-full h-full object-cover rounded-lg"
                         />
                       </div>
-                      <div className="text-[11px] font-bold text-white line-clamp-1">{p.title}</div>
+                      <div className="text-[11px] font-bold text-white line-clamp-1">{p.title || p.name}</div>
                       <div className="text-[10px] font-mono text-cyan-300 font-black">
                         ₹{p.wholesaleINR ? Math.round(p.wholesaleINR * (1 + marginPercent / 100)) : Math.round(p.costUSD * 86.5 * (1 + marginPercent / 100))}
                       </div>

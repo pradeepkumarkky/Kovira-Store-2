@@ -3,6 +3,7 @@ import { Product, CurrencyCode, CustomerLocation } from '../types';
 import { formatPrice } from '../utils/currency';
 import { computeProductLiveSync } from '../utils/supplierSync';
 import { getProductRandomDiscount } from '../utils/discountBanner';
+import { getPrimaryImage } from '../utils/productNormalizer';
 import { Star, ShoppingBag, Eye, CheckCircle2, Zap, AlertTriangle, Heart, Truck, ExternalLink, Sparkles } from 'lucide-react';
 
 interface ProductCardProps {
@@ -71,7 +72,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
         {/* Left: Product Picture (fills full left height) */}
         <div className="relative w-28 sm:w-44 md:w-56 lg:w-64 shrink-0 bg-slate-950 overflow-hidden self-stretch">
           <img
-            src={product.images[0]}
+            src={getPrimaryImage(product)}
             alt={product.title}
             referrerPolicy="no-referrer"
             className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-500 ease-out"
@@ -220,7 +221,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
       {/* Product Media Container */}
       <div className="relative w-full aspect-square bg-slate-950 overflow-hidden">
         <img
-          src={product.images[0]}
+          src={getPrimaryImage(product)}
           alt={product.title}
           referrerPolicy="no-referrer"
           className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-500 ease-out"

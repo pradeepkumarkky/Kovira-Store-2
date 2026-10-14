@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Product, Supplier, Order, RestockNotification, CurrencyCode, OrderItem, CustomerLocation, CustomerUser, DressProduct } from './types';
 import { SUPPORTED_LOCATIONS, DEFAULT_LOCATION } from './utils/supplierSync';
 import { DEFAULT_CURRENCY, CURRENCIES, formatPrice } from './utils/currency';
+import { getPrimaryImage } from './utils/productNormalizer';
 import { Header } from './components/Header';
 import { ProductCard } from './components/ProductCard';
 import { ProductModal } from './components/ProductModal';
@@ -275,7 +276,7 @@ export default function App() {
             quantity: 1,
             supplierId: prod.supplierId,
             supplierName: prod.supplierName,
-            image: prod.images[0],
+            image: getPrimaryImage(prod),
           });
         }
       }
@@ -435,7 +436,7 @@ export default function App() {
           quantity: Math.min(product.stock, quantity),
           supplierId: product.supplierId,
           supplierName: product.supplierName,
-          image: product.images[0],
+          image: getPrimaryImage(product),
         },
       ];
     });
@@ -471,7 +472,7 @@ export default function App() {
         quantity,
         supplierId: product.supplierId,
         supplierName: product.supplierName,
-        image: product.images[0],
+        image: getPrimaryImage(product),
       },
     ]);
     setIsCheckoutOpen(true);

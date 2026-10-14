@@ -138,30 +138,108 @@ export default async function handler(req: any, res: any) {
     let supabaseProducts: any[] = [];
 
     if (supabase) {
-      let query = supabase.from('products').select('*');
+      let data: any[] | null = null;
+      let error: any = null;
+
+      // First try query with is_published filter if not admin
       if (!includeDrafts) {
-        query = query.or('is_published.is.null,is_published.eq.true');
+        try {
+          const res = await supabase.from('products').select('*').or('is_published.is.null,is_published.eq.true');
+          data = res.data;
+          error = res.error;
+        } catch (e: any) {
+          error = e;
+        }
       }
 
-      const { data, error } = await query;
+      // If error (e.g. column is_published does not exist) or includeDrafts is true, query all products
+      if (error || !data || includeDrafts) {
+        try {
+          const res = await supabase.from('products').select('*');
+          if (!res.error && res.data) {
+            data = res.data;
+            error = null;
+          }
+        } catch (e: any) {
+          console.warn('Fallback select * from products notice:', e?.message);
+        }
+      }
+
       if (!error && Array.isArray(data) && data.length > 0) {
         supabaseProducts = data.map((row: any) => {
-          const priceUSD = Number(row.price_usd ?? row.priceUSD ?? (row.wholesale_inr ? Number(row.wholesale_inr) / 86.5 : 2.5));
-          const costUSD = Number(row.cost_usd ?? row.costUSD ?? (priceUSD * 0.65));
-          const images = Array.isArray(row.images) && row.images.length > 0
-            ? row.images
-            : (typeof row.images === 'string' && row.images.trim()
-                ? [row.images.trim()]
-                : ['https://images.unsplash.com/photo-1588854337236-6889d631faa8?w=800&auto=format&fit=crop&q=80']);
+          const priceUSD = Number(
+            row.price_usd ??
+            row.priceUSD ??
+            row.price ??
+            row.retail_price ??
+            (row.wholesale_inr ? (Number(row.wholesale_inr) * 1.4) / 86.5 : 2.5)
+          );
+          const costUSD = Number(
+            row.cost_usd ??
+            row.costUSD ??
+            row.cost ??
+            (row.wholesale_inr ? Number(row.wholesale_inr) / 86.5 : priceUSD * 0.65)
+          );
+
+          // Support all image column variants: images, Images, image, Image, image_url, imageUrl, photos, photo
+          const rawImages =
+            row.images ??
+            row.Images ??
+            row.image ??
+            row.Image ??
+            row.image_url ??
+            row.imageUrl ??
+            row.photo ??
+            row.photos ??
+            row.primary_image ??
+            row.thumbnail;
+
+          let images: string[] = [];
+          if (Array.isArray(rawImages)) {
+            for (const item of rawImages) {
+              if (typeof item === 'string' && item.trim()) {
+                const u = item.trim();
+                images.push(u.startsWith('//') ? `https:${u}` : u);
+              } else if (item && typeof item === 'object') {
+                const src = item.src || item.url || item.image_url || item.image;
+                if (src) {
+                  const u = String(src).trim();
+                  images.push(u.startsWith('//') ? `https:${u}` : u);
+                }
+              }
+            }
+          } else if (typeof rawImages === 'string') {
+            const trimmed = rawImages.trim();
+            if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+              try {
+                const parsed = JSON.parse(trimmed);
+                if (Array.isArray(parsed)) {
+                  images = parsed.map((x: any) => typeof x === 'string' ? x : (x.src || x.url || '')).filter(Boolean);
+                }
+              } catch {
+                images = [trimmed];
+              }
+            } else if (trimmed.includes(',') && !trimmed.includes('data:')) {
+              images = trimmed.split(',').map((s) => s.trim()).filter(Boolean);
+            } else if (trimmed.length > 0) {
+              images = [trimmed.startsWith('//') ? `https:${trimmed}` : trimmed];
+            }
+          }
+          if (images.length === 0) {
+            images = ['https://images.unsplash.com/photo-1588854337236-6889d631faa8?w=800&auto=format&fit=crop&q=80'];
+          }
+
+          const rawTitle = row.title ?? row.name ?? row.product_name ?? row.product ?? 'Curated Essential';
+          const cleanTitle = String(rawTitle).replace(/^(DeoDap|Baapstore|CJdropshipping|CJ)\s*[-–—:]*\s*/gi, '').trim();
 
           return {
-            id: String(row.id),
-            title: String(row.title || 'Curated Essential').replace(/^(DeoDap|Baapstore|CJdropshipping|CJ)\s*[-–—:]*\s*/gi, '').trim(),
-            description: String(row.description || 'Verified lifestyle essential with express priority delivery.'),
-            category: String(row.category || 'Lifestyle Essentials'),
+            id: String(row.id || row.sku || `prod_${Date.now()}`),
+            title: cleanTitle || 'Curated Essential',
+            description: String(row.description || row.body_html || 'Verified lifestyle essential with express priority delivery.'),
+            category: String(row.category || row.product_type || 'Lifestyle Essentials'),
             priceUSD: priceUSD > 0 ? priceUSD : 2.5,
             costUSD: costUSD > 0 ? costUSD : 1.5,
-            stock: Number(row.stock ?? 50),
+            stock: Number(row.stock ?? row.inventory_quantity ?? 50),
             reorderPoint: Number(row.reorder_point ?? 10),
             reorderQuantity: Number(row.reorder_quantity ?? 30),
             sku: String(row.sku || row.id || `KOV-${Math.floor(100 + Math.random() * 900)}`),
@@ -171,6 +249,7 @@ export default async function handler(req: any, res: any) {
             supplierLeadDays: Number(row.supplier_lead_days ?? 2),
             supplierLink: String(row.supplier_link || ''),
             images,
+            image: images[0],
             rating: Number(row.rating ?? 4.8),
             reviewsCount: Number(row.reviews_count ?? 32),
             tags: Array.isArray(row.tags) && row.tags.length > 0 ? row.tags : ['Bestseller', row.category || 'Lifestyle'],
@@ -183,7 +262,7 @@ export default async function handler(req: any, res: any) {
             deliveryChargeINR: Number(row.delivery_charge_inr ?? 49),
             liveSync: {
               destinationCountry: country,
-              stock: Number(row.stock ?? 50),
+              stock: Number(row.stock ?? row.inventory_quantity ?? 50),
               leadDaysMin: 2,
               leadDaysMax: 4,
               leadDaysLabel: '2–4 business days',
@@ -198,7 +277,6 @@ export default async function handler(req: any, res: any) {
             },
           };
         });
-      }
     }
 
     if (supabaseProducts.length > 0) {

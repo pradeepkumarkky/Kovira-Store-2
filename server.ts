@@ -1254,29 +1254,104 @@ app.get('/api/products', async (req: Request, res: Response) => {
   const supabase = getSupabase(true) || getSupabase(false);
   if (supabase) {
     try {
-      let q = supabase.from('products').select('*');
+      let data: any[] | null = null;
+      let error: any = null;
+
       if (!includeDrafts) {
-        q = q.or('is_published.is.null,is_published.eq.true');
+        try {
+          const res = await supabase.from('products').select('*').or('is_published.is.null,is_published.eq.true');
+          data = res.data;
+          error = res.error;
+        } catch (e: any) {
+          error = e;
+        }
       }
-      const { data, error } = await q;
+
+      if (error || !data || includeDrafts) {
+        try {
+          const res = await supabase.from('products').select('*');
+          if (!res.error && res.data) {
+            data = res.data;
+            error = null;
+          }
+        } catch (e: any) {
+          console.warn('Fallback select * from products in server.ts notice:', e?.message);
+        }
+      }
+
       if (!error && Array.isArray(data) && data.length > 0) {
         const mapped = data.map((row: any) => {
-          const priceUSD = Number(row.price_usd ?? row.priceUSD ?? (row.wholesale_inr ? Number(row.wholesale_inr) / 86.5 : 2.5));
-          const costUSD = Number(row.cost_usd ?? row.costUSD ?? (priceUSD * 0.65));
-          const images = Array.isArray(row.images) && row.images.length > 0
-            ? row.images
-            : (typeof row.images === 'string' && row.images.trim()
-                ? [row.images.trim()]
-                : ['https://images.unsplash.com/photo-1588854337236-6889d631faa8?w=800&auto=format&fit=crop&q=80']);
+          const priceUSD = Number(
+            row.price_usd ??
+            row.priceUSD ??
+            row.price ??
+            row.retail_price ??
+            (row.wholesale_inr ? (Number(row.wholesale_inr) * 1.4) / 86.5 : 2.5)
+          );
+          const costUSD = Number(
+            row.cost_usd ??
+            row.costUSD ??
+            row.cost ??
+            (row.wholesale_inr ? Number(row.wholesale_inr) / 86.5 : priceUSD * 0.65)
+          );
+          const rawImages =
+            row.images ??
+            row.Images ??
+            row.image ??
+            row.Image ??
+            row.image_url ??
+            row.imageUrl ??
+            row.photo ??
+            row.photos ??
+            row.primary_image ??
+            row.thumbnail;
+
+          let images: string[] = [];
+          if (Array.isArray(rawImages)) {
+            for (const item of rawImages) {
+              if (typeof item === 'string' && item.trim()) {
+                const u = item.trim();
+                images.push(u.startsWith('//') ? `https:${u}` : u);
+              } else if (item && typeof item === 'object') {
+                const src = item.src || item.url || item.image_url || item.image;
+                if (src) {
+                  const u = String(src).trim();
+                  images.push(u.startsWith('//') ? `https:${u}` : u);
+                }
+              }
+            }
+          } else if (typeof rawImages === 'string') {
+            const trimmed = rawImages.trim();
+            if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+              try {
+                const parsed = JSON.parse(trimmed);
+                if (Array.isArray(parsed)) {
+                  images = parsed.map((x: any) => typeof x === 'string' ? x : (x.src || x.url || '')).filter(Boolean);
+                }
+              } catch {
+                images = [trimmed];
+              }
+            } else if (trimmed.includes(',') && !trimmed.includes('data:')) {
+              images = trimmed.split(',').map((s) => s.trim()).filter(Boolean);
+            } else if (trimmed.length > 0) {
+              images = [trimmed.startsWith('//') ? `https:${trimmed}` : trimmed];
+            }
+          }
+          if (images.length === 0) {
+            images = ['https://images.unsplash.com/photo-1588854337236-6889d631faa8?w=800&auto=format&fit=crop&q=80'];
+          }
+
+          const rawTitle = row.title ?? row.name ?? row.product_name ?? row.product ?? 'Curated Essential';
+          const cleanTitle = String(rawTitle).replace(/^(DeoDap|Baapstore|CJdropshipping|CJ)\s*[-–—:]*\s*/gi, '').trim();
 
           return {
-            id: String(row.id),
-            title: String(row.title || 'Curated Essential').replace(/^(DeoDap|Baapstore|CJdropshipping|CJ)\s*[-–—:]*\s*/gi, '').trim(),
-            description: String(row.description || 'Verified lifestyle essential with express priority delivery.'),
-            category: String(row.category || 'Lifestyle Essentials'),
+            id: String(row.id || row.sku || `prod_${Date.now()}`),
+            title: cleanTitle || 'Curated Essential',
+            description: String(row.description || row.body_html || 'Verified lifestyle essential with express priority delivery.'),
+            category: String(row.category || row.product_type || 'Lifestyle Essentials'),
             priceUSD: priceUSD > 0 ? priceUSD : 2.5,
             costUSD: costUSD > 0 ? costUSD : 1.5,
-            stock: Number(row.stock ?? 50),
+            stock: Number(row.stock ?? row.inventory_quantity ?? 50),
             reorderPoint: Number(row.reorder_point ?? 10),
             reorderQuantity: Number(row.reorder_quantity ?? 30),
             sku: String(row.sku || row.id || `KOV-${Math.floor(100 + Math.random() * 900)}`),
@@ -1286,6 +1361,7 @@ app.get('/api/products', async (req: Request, res: Response) => {
             supplierLeadDays: Number(row.supplier_lead_days ?? 2),
             supplierLink: String(row.supplier_link || ''),
             images,
+            image: images[0],
             rating: Number(row.rating ?? 4.8),
             reviewsCount: Number(row.reviews_count ?? 32),
             tags: Array.isArray(row.tags) && row.tags.length > 0 ? row.tags : ['Bestseller', row.category || 'Lifestyle'],
@@ -3643,7 +3719,7 @@ const handleWebLinkUpload = async (req: Request, res: Response) => {
 
     try {
       let rawProducts: any[] = [];
-      let fetchUrl = `https://deodap.in/collections/${encodeURIComponent(collHandle)}/products.json?limit=50&page=${pageNum}`;
+      let fetchUrl = `https://deodap.in/collections/${encodeURIComponent(collHandle)}/products.json?limit=250&page=${pageNum}`;
       try {
         let response = await fetch(fetchUrl, {
           headers: {
@@ -3653,7 +3729,7 @@ const handleWebLinkUpload = async (req: Request, res: Response) => {
         });
 
         if (!response.ok) {
-          fetchUrl = `https://deodap.in/products.json?limit=50&page=${pageNum}`;
+          fetchUrl = `https://deodap.in/products.json?limit=250&page=${pageNum}`;
           response = await fetch(fetchUrl, {
             headers: {
               'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -3664,7 +3740,7 @@ const handleWebLinkUpload = async (req: Request, res: Response) => {
 
         if (response.ok) {
           const data: any = await response.json();
-          rawProducts = data.products || [];
+          rawProducts = data.products || (data.product ? [data.product] : []);
         }
       } catch (fetchErr) {
         console.warn('Collection fetch notice, checking fallback inventory:', fetchErr);
@@ -3695,18 +3771,42 @@ const handleWebLinkUpload = async (req: Request, res: Response) => {
       const importedProducts: any[] = [];
 
       for (const p of rawProducts) {
-        const handle = p.handle;
+        const handle = p.handle || (p.title ? p.title.toLowerCase().replace(/[^a-z0-9]+/g, '-') : `item-${Date.now()}`);
         const mainVariant = p.variants?.[0] || {};
-        const wholesaleINR = Number(mainVariant.price) || 120;
+        const wholesaleINR = Number(mainVariant.price || p.wholesaleINR || p.costINR || p.price) || 120;
         const marginAmountINR = Math.round(wholesaleINR * (marginPercent / 100));
         const retailINR = wholesaleINR + marginAmountINR;
         const costUSD = Number((wholesaleINR / INR_RATE).toFixed(2));
         const priceUSD = Number((costUSD * effectiveMarkup).toFixed(2));
-        const sku = mainVariant.sku || `DD-${handle.slice(0, 12).toUpperCase()}`;
+        const sku = mainVariant.sku || p.sku || `DD-${handle.slice(0, 12).toUpperCase()}`;
         const deliveryChargeINR = 49;
 
-        const cleanTitle = p.title.replace(/^(DeoDap|Deodap)\s*[-–—:]*\s*/gi, '').trim();
-        const images = (p.images || []).map((img: any) => img.src).filter(Boolean);
+        const cleanTitle = (p.title || p.name || 'Curated Essential').replace(/^(DeoDap|Deodap)\s*[-–—:]*\s*/gi, '').trim();
+
+        // Extract images from any format (objects with src, strings, Image, Images, etc.)
+        const rawImgs = p.images || p.Images || p.image || p.Image || [];
+        const images: string[] = [];
+        if (Array.isArray(rawImgs)) {
+          for (const img of rawImgs) {
+            if (typeof img === 'string') {
+              const u = img.trim();
+              if (u) images.push(u.startsWith('//') ? `https:${u}` : u);
+            } else if (img && typeof img === 'object') {
+              const src = img.src || img.url || img.image_url || img.image;
+              if (src) {
+                const u = String(src).trim();
+                images.push(u.startsWith('//') ? `https:${u}` : u);
+              }
+            }
+          }
+        } else if (typeof rawImgs === 'string') {
+          const u = rawImgs.trim();
+          if (u) images.push(u.startsWith('//') ? `https:${u}` : u);
+        }
+        if (images.length === 0 && p.image) {
+          const s = typeof p.image === 'string' ? p.image.trim() : (p.image.src || p.image.url || '');
+          if (s) images.push(s.startsWith('//') ? `https:${s}` : s);
+        }
         if (images.length === 0) {
           images.push('https://images.unsplash.com/photo-1588854337236-6889d631faa8?w=800&auto=format&fit=crop&q=80');
         }
@@ -3714,8 +3814,8 @@ const handleWebLinkUpload = async (req: Request, res: Response) => {
         const newProd = {
           id: `prod_live_${p.id || Date.now()}_${Math.floor(Math.random() * 1000)}`,
           title: cleanTitle,
-          description: cleanShopifyHtml(p.body_html).replace(/DeoDap/gi, 'Curated Direct') || `Direct factory wholesale product inspected and dispatched with priority tracking.`,
-          category: customCategory || p.product_type || 'Lifestyle Essentials',
+          description: cleanShopifyHtml(p.body_html || p.description).replace(/DeoDap/gi, 'Curated Direct') || `Direct factory wholesale product inspected and dispatched with priority tracking.`,
+          category: customCategory || p.product_type || p.category || 'Lifestyle Essentials',
           priceUSD,
           costUSD,
           stock: mainVariant.inventory_quantity > 0 ? mainVariant.inventory_quantity : 120,
@@ -3728,6 +3828,7 @@ const handleWebLinkUpload = async (req: Request, res: Response) => {
           supplierPlatform: detectedSupplier.platform,
           supplierLink: `https://${detectedSupplier.domain}/products/${handle}`,
           images,
+          image: images[0],
           rating: 4.8,
           reviewsCount: Math.floor(25 + Math.random() * 70),
           tags: ['Factory Direct', 'Web Link Upload', detectedSupplier.platform, 'Made in India'],
@@ -3836,6 +3937,7 @@ const handleWebLinkUpload = async (req: Request, res: Response) => {
         collection: collHandle,
         supplierName: detectedSupplier.name,
         products: importedProducts,
+        product: importedProducts[0],
         isPublished: Boolean(publishImmediately !== false),
         marginPercent,
         message: `Successfully uploaded ${importedProducts.length} products from ${detectedSupplier.name} link with ${marginPercent}% default margin!`,
@@ -3870,14 +3972,38 @@ const handleWebLinkUpload = async (req: Request, res: Response) => {
 
       if (response.ok) {
         const data: any = await response.json();
-        const p = data.product;
+        const p = data.product || (data.products ? data.products[0] : null);
         if (p) {
           const mainVariant = p.variants?.[0] || {};
-          wholesaleINR = Number(mainVariant.price) || 120;
-          cleanTitle = p.title.replace(/^(DeoDap|Deodap)\s*[-–—:]*\s*/gi, '').trim();
-          sku = mainVariant.sku || `DD-${handle.slice(0, 12).toUpperCase()}`;
-          images = (p.images || []).map((img: any) => img.src).filter(Boolean);
-          description = cleanShopifyHtml(p.body_html).replace(/DeoDap/gi, 'Curated Direct');
+          wholesaleINR = Number(mainVariant.price || p.wholesaleINR || p.price) || 120;
+          cleanTitle = (p.title || p.name || '').replace(/^(DeoDap|Deodap)\s*[-–—:]*\s*/gi, '').trim();
+          sku = mainVariant.sku || p.sku || `DD-${handle.slice(0, 12).toUpperCase()}`;
+
+          const rawImgs = p.images || p.Images || p.image || p.Image || [];
+          images = [];
+          if (Array.isArray(rawImgs)) {
+            for (const img of rawImgs) {
+              if (typeof img === 'string') {
+                const u = img.trim();
+                if (u) images.push(u.startsWith('//') ? `https:${u}` : u);
+              } else if (img && typeof img === 'object') {
+                const src = img.src || img.url || img.image_url || img.image;
+                if (src) {
+                  const u = String(src).trim();
+                  images.push(u.startsWith('//') ? `https:${u}` : u);
+                }
+              }
+            }
+          } else if (typeof rawImgs === 'string') {
+            const u = rawImgs.trim();
+            if (u) images.push(u.startsWith('//') ? `https:${u}` : u);
+          }
+          if (images.length === 0 && p.image) {
+            const s = typeof p.image === 'string' ? p.image.trim() : (p.image.src || p.image.url || '');
+            if (s) images.push(s.startsWith('//') ? `https:${s}` : s);
+          }
+
+          description = cleanShopifyHtml(p.body_html || p.description).replace(/DeoDap/gi, 'Curated Direct');
         }
       }
     } catch (err) {
@@ -4100,10 +4226,13 @@ const handleWebLinkUpload = async (req: Request, res: Response) => {
     }
   }
 
+  const finalProd = existingIdx >= 0 ? products[existingIdx] : newProd;
   return res.json({
     success: true,
     type: 'single',
-    product: existingIdx >= 0 ? products[existingIdx] : newProd,
+    product: finalProd,
+    products: [finalProd],
+    count: 1,
     supplierName: detectedSupplier.name,
     wholesaleINR,
     retailINR,

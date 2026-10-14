@@ -108,7 +108,7 @@ export default async function handler(req: any, res: any) {
     const pageNum = pageMatch ? pageMatch[1] : '1';
 
     try {
-      let fetchUrl = `https://deodap.in/collections/${encodeURIComponent(collHandle)}/products.json?limit=50&page=${pageNum}`;
+      let fetchUrl = `https://deodap.in/collections/${encodeURIComponent(collHandle)}/products.json?limit=250&page=${pageNum}`;
       let response = await fetch(fetchUrl, {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -117,7 +117,7 @@ export default async function handler(req: any, res: any) {
       });
 
       if (!response.ok) {
-        fetchUrl = `https://deodap.in/products.json?limit=50&page=${pageNum}`;
+        fetchUrl = `https://deodap.in/products.json?limit=250&page=${pageNum}`;
         response = await fetch(fetchUrl, {
           headers: {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -129,7 +129,7 @@ export default async function handler(req: any, res: any) {
       let rawProducts: any[] = [];
       if (response.ok) {
         const data: any = await response.json();
-        rawProducts = data.products || [];
+        rawProducts = data.products || (data.product ? [data.product] : []);
       }
 
       // If remote collection returned no products or blocked, provide graceful curated items
@@ -166,17 +166,42 @@ export default async function handler(req: any, res: any) {
       }
 
       const importedProducts = rawProducts.map((p: any) => {
-        const handle = p.handle;
+        const handle = p.handle || (p.title ? p.title.toLowerCase().replace(/[^a-z0-9]+/g, '-') : `item-${Date.now()}`);
         const mainVariant = p.variants?.[0] || {};
-        const wholesaleINR = Number(mainVariant.price) || 120;
+        const wholesaleINR = Number(mainVariant.price || p.wholesaleINR || p.costINR || p.price) || 120;
         const marginAmountINR = Math.round(wholesaleINR * (marginPercent / 100));
         const retailINR = wholesaleINR + marginAmountINR;
         const costUSD = Number((wholesaleINR / INR_RATE).toFixed(2));
         const priceUSD = Number((costUSD * effectiveMarkup).toFixed(2));
-        const sku = mainVariant.sku || `DD-${handle.slice(0, 12).toUpperCase()}`;
+        const sku = mainVariant.sku || p.sku || `DD-${handle.slice(0, 12).toUpperCase()}`;
 
-        const cleanTitle = p.title.replace(/^(DeoDap|Deodap)\s*[-–—:]*\s*/gi, '').trim();
-        const images = (p.images || []).map((img: any) => img.src).filter(Boolean);
+        const cleanTitle = (p.title || p.name || 'Curated Essential').replace(/^(DeoDap|Deodap)\s*[-–—:]*\s*/gi, '').trim();
+
+        // Comprehensive image extractor supporting:
+        // images: [{ src: '...' }], images: ['...'], image: '...', image: { src: '...' }, Images: [...], Image: '...'
+        const rawImgs = p.images || p.Images || p.image || p.Image || [];
+        const images: string[] = [];
+        if (Array.isArray(rawImgs)) {
+          for (const img of rawImgs) {
+            if (typeof img === 'string') {
+              const u = img.trim();
+              if (u) images.push(u.startsWith('//') ? `https:${u}` : u);
+            } else if (img && typeof img === 'object') {
+              const src = img.src || img.url || img.image_url || img.image;
+              if (src) {
+                const u = String(src).trim();
+                images.push(u.startsWith('//') ? `https:${u}` : u);
+              }
+            }
+          }
+        } else if (typeof rawImgs === 'string') {
+          const u = rawImgs.trim();
+          if (u) images.push(u.startsWith('//') ? `https:${u}` : u);
+        }
+        if (images.length === 0 && p.image) {
+          const s = typeof p.image === 'string' ? p.image.trim() : (p.image.src || p.image.url || '');
+          if (s) images.push(s.startsWith('//') ? `https:${s}` : s);
+        }
         if (images.length === 0) {
           images.push('https://images.unsplash.com/photo-1588854337236-6889d631faa8?w=800&auto=format&fit=crop&q=80');
         }
@@ -184,8 +209,8 @@ export default async function handler(req: any, res: any) {
         return {
           id: `prod_live_${p.id || Date.now()}_${Math.floor(Math.random() * 1000)}`,
           title: cleanTitle,
-          description: cleanHtml(p.body_html).replace(/DeoDap/gi, 'Curated Direct') || `Direct factory wholesale product inspected and dispatched PAN-India.`,
-          category: customCategory || p.product_type || 'Lifestyle Essentials',
+          description: cleanHtml(p.body_html || p.description).replace(/DeoDap/gi, 'Curated Direct') || `Direct factory wholesale product inspected and dispatched PAN-India.`,
+          category: customCategory || p.product_type || p.category || 'Lifestyle Essentials',
           priceUSD,
           costUSD,
           stock: mainVariant.inventory_quantity > 0 ? mainVariant.inventory_quantity : 120,
@@ -198,6 +223,7 @@ export default async function handler(req: any, res: any) {
           supplierPlatform: detectedSupplier.platform,
           supplierLink: `https://${detectedSupplier.domain}/products/${handle}`,
           images,
+          image: images[0],
           rating: 4.8,
           reviewsCount: Math.floor(25 + Math.random() * 70),
           tags: ['Factory Direct', 'Web Link Upload', detectedSupplier.platform, 'Made in India'],
@@ -276,6 +302,7 @@ export default async function handler(req: any, res: any) {
         collection: collHandle,
         supplierName: detectedSupplier.name,
         products: importedProducts,
+        product: importedProducts[0],
         isPublished: Boolean(publishImmediately !== false),
         marginPercent,
         message: `Successfully uploaded ${importedProducts.length} products from ${detectedSupplier.name} link with ${marginPercent}% default margin!`,
@@ -311,14 +338,38 @@ export default async function handler(req: any, res: any) {
 
       if (response.ok) {
         const data: any = await response.json();
-        const p = data.product;
+        const p = data.product || (data.products ? data.products[0] : null);
         if (p) {
           const mainVariant = p.variants?.[0] || {};
-          wholesaleINR = Number(mainVariant.price) || 120;
-          cleanTitle = p.title.replace(/^(DeoDap|Deodap)\s*[-–—:]*\s*/gi, '').trim();
-          sku = mainVariant.sku || `DD-${handle.slice(0, 12).toUpperCase()}`;
-          images = (p.images || []).map((img: any) => img.src).filter(Boolean);
-          description = cleanHtml(p.body_html).replace(/DeoDap/gi, 'Curated Direct');
+          wholesaleINR = Number(mainVariant.price || p.wholesaleINR || p.price) || 120;
+          cleanTitle = (p.title || p.name || '').replace(/^(DeoDap|Deodap)\s*[-–—:]*\s*/gi, '').trim();
+          sku = mainVariant.sku || p.sku || `DD-${handle.slice(0, 12).toUpperCase()}`;
+
+          const rawImgs = p.images || p.Images || p.image || p.Image || [];
+          images = [];
+          if (Array.isArray(rawImgs)) {
+            for (const img of rawImgs) {
+              if (typeof img === 'string') {
+                const u = img.trim();
+                if (u) images.push(u.startsWith('//') ? `https:${u}` : u);
+              } else if (img && typeof img === 'object') {
+                const src = img.src || img.url || img.image_url || img.image;
+                if (src) {
+                  const u = String(src).trim();
+                  images.push(u.startsWith('//') ? `https:${u}` : u);
+                }
+              }
+            }
+          } else if (typeof rawImgs === 'string') {
+            const u = rawImgs.trim();
+            if (u) images.push(u.startsWith('//') ? `https:${u}` : u);
+          }
+          if (images.length === 0 && p.image) {
+            const s = typeof p.image === 'string' ? p.image.trim() : (p.image.src || p.image.url || '');
+            if (s) images.push(s.startsWith('//') ? `https:${s}` : s);
+          }
+
+          description = cleanHtml(p.body_html || p.description).replace(/DeoDap/gi, 'Curated Direct');
         }
       }
     } catch (err) {
@@ -499,6 +550,7 @@ export default async function handler(req: any, res: any) {
         supplier_platform: newProd.supplierPlatform,
         supplier_link: newProd.supplierLink,
         images: newProd.images,
+        image: newProd.images[0],
         rating: newProd.rating,
         reviews_count: newProd.reviewsCount,
         tags: newProd.tags,
@@ -518,6 +570,8 @@ export default async function handler(req: any, res: any) {
     success: true,
     type: 'single',
     product: newProd,
+    products: [newProd],
+    count: 1,
     supplierName: detectedSupplier.name,
     wholesaleINR,
     retailINR,
@@ -527,3 +581,4 @@ export default async function handler(req: any, res: any) {
     message: `Successfully uploaded "${cleanTitle}" from ${detectedSupplier.name} with ${marginPercent}% default margin (₹${retailINR})!`,
   });
 }
+

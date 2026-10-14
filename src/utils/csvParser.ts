@@ -52,28 +52,38 @@ export function parseDeoDapShopifyCSV(csvText: string) {
   if (rows.length < 2) return [];
 
   const headers = rows[0].map((h) => h.toLowerCase().trim());
-  const handleIdx = headers.indexOf('handle');
-  const titleIdx = headers.indexOf('title');
-  const bodyIdx = headers.indexOf('body (html)');
-  const skuIdx = headers.indexOf('variant sku');
-  const priceIdx = headers.indexOf('variant price');
-  const compareAtIdx = headers.indexOf('variant compare at price');
-  const costIdx = headers.indexOf('cost per item');
-  const qtyIdx = headers.indexOf('variant inventory qty');
-  const imageIdx = headers.indexOf('image src');
-  const tagsIdx = headers.indexOf('tags');
-  const weightIdx = headers.indexOf('variant grams');
-  const categoryIdx = headers.indexOf('custom product type');
+  const findCol = (keywords: string[]) =>
+    headers.findIndex((h) => keywords.some((k) => h === k || h.includes(k)));
+
+  const handleIdx = findCol(['handle', 'slug', 'product handle', 'item id', 'id']);
+  const titleIdx = findCol(['title', 'name', 'product title', 'product name', 'item name']);
+  const bodyIdx = findCol(['body (html)', 'body', 'description', 'desc', 'details']);
+  const skuIdx = findCol(['variant sku', 'sku', 'item code', 'code']);
+  const priceIdx = findCol(['variant price', 'price', 'retail price', 'selling price', 'mrp']);
+  const compareAtIdx = findCol(['variant compare at price', 'compare at price', 'compare at']);
+  const costIdx = findCol(['cost per item', 'cost', 'wholesale price', 'wholesale', 'buying price']);
+  const qtyIdx = findCol(['variant inventory qty', 'inventory qty', 'stock', 'qty', 'quantity']);
+  // Handle ALL variations: image, images, image src, image url, photo, photos, img, pic
+  const imageIdx = findCol(['image src', 'image', 'images', 'image url', 'image_url', 'img', 'photo', 'photos', 'src', 'pic']);
+  const tagsIdx = findCol(['tags', 'keywords']);
+  const weightIdx = findCol(['variant grams', 'grams', 'weight']);
+  const categoryIdx = findCol(['custom product type', 'product type', 'type', 'category']);
 
   const productsByHandle: Record<string, any> = {};
 
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i];
-    const handle = handleIdx !== -1 ? row[handleIdx] : '';
+    let handle = handleIdx !== -1 ? row[handleIdx] : '';
+    const title = titleIdx !== -1 ? row[titleIdx] : '';
+    if (!handle && title) {
+      handle = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+    }
     if (!handle) continue;
 
-    const title = titleIdx !== -1 ? row[titleIdx] : '';
-    const imageSrc = imageIdx !== -1 ? row[imageIdx] : '';
+    let imageSrc = imageIdx !== -1 ? (row[imageIdx] || '').trim() : '';
+    if (imageSrc.startsWith('//')) {
+      imageSrc = `https:${imageSrc}`;
+    }
 
     if (!productsByHandle[handle]) {
       const rawBody = bodyIdx !== -1 ? row[bodyIdx] : '';
@@ -84,8 +94,8 @@ export function parseDeoDapShopifyCSV(csvText: string) {
         .trim();
 
       const wholesaleINR = parseFloat(row[costIdx] || row[priceIdx]) || 150;
-      const retailINR = parseFloat(row[compareAtIdx] || row[priceIdx]) || wholesaleINR * 2.2;
-      const sku = (skuIdx !== -1 && row[skuIdx]) ? row[skuIdx] : handle;
+      const retailINR = parseFloat(row[compareAtIdx] || row[priceIdx]) || Math.round(wholesaleINR * 1.5);
+      const sku = (skuIdx !== -1 && row[skuIdx]) ? row[skuIdx] : `DD-${handle.slice(0, 10).toUpperCase()}`;
       const stock = parseInt(row[qtyIdx] || '100', 10);
       const weightGrams = parseFloat(row[weightIdx]) || 350;
       const tags = (tagsIdx !== -1 && row[tagsIdx])
@@ -94,6 +104,8 @@ export function parseDeoDapShopifyCSV(csvText: string) {
       const category = (categoryIdx !== -1 && row[categoryIdx] && row[categoryIdx].trim())
         ? row[categoryIdx].trim()
         : 'Smart Kitchen';
+
+      const initialImages = imageSrc ? [imageSrc] : ['https://images.unsplash.com/photo-1588854337236-6889d631faa8?w=800&auto=format&fit=crop&q=80'];
 
       productsByHandle[handle] = {
         handle,
@@ -106,9 +118,10 @@ export function parseDeoDapShopifyCSV(csvText: string) {
         priceUSD: Number((retailINR / 86.5).toFixed(2)),
         stock: isNaN(stock) || stock <= 0 ? 50 : stock,
         weightKg: Number((weightGrams / 1000).toFixed(2)),
-        category: category.includes('Kitchen') ? 'Smart Kitchen' : category.includes('Beauty') || category.includes('Personal') ? 'Personal Care' : 'Electronics',
+        category: category.includes('Kitchen') ? 'Smart Kitchen' : category.includes('Beauty') || category.includes('Personal') ? 'Personal Care' : category || 'Lifestyle Essentials',
         tags: ['DeoDap', ...tags],
-        images: imageSrc ? [imageSrc] : [],
+        images: initialImages,
+        image: initialImages[0],
         supplierLink: `https://deodap.in/products/${handle}`,
       };
     } else {
@@ -121,3 +134,4 @@ export function parseDeoDapShopifyCSV(csvText: string) {
 
   return Object.values(productsByHandle);
 }
+

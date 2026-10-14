@@ -193,7 +193,7 @@ export const CSVInventoryManager: React.FC<CSVInventoryManagerProps> = ({
     const retailIdx = findIndex(['retail', 'price', 'selling', 'mrp']);
     const stockIdx = findIndex(['stock', 'qty', 'quantity', 'inventory']);
     const catIdx = findIndex(['category', 'type', 'collection']);
-    const imgIdx = findIndex(['image', 'photo', 'src', 'url']);
+    const imgIdx = findIndex(['image src', 'image', 'images', 'image url', 'image_url', 'photo', 'photos', 'src', 'url', 'pic', 'picture', 'img']);
     const descIdx = findIndex(['desc', 'body', 'details']);
 
     const items: any[] = [];
@@ -206,8 +206,9 @@ export const CSVInventoryManager: React.FC<CSVInventoryManagerProps> = ({
       const rawRetail = retailIdx !== -1 ? parseFloat(row[retailIdx]) : 0;
       const rawStock = stockIdx !== -1 ? parseInt(row[stockIdx], 10) : 100;
       const rawSku = skuIdx !== -1 && row[skuIdx] ? row[skuIdx] : `INV-${Date.now()}-${i}`;
-      const rawCat = catIdx !== -1 && row[catIdx] ? row[catIdx] : 'Lifestyle';
-      const rawImg = imgIdx !== -1 && row[imgIdx] ? row[imgIdx] : 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=800&q=80';
+      const rawCat = catIdx !== -1 && row[catIdx] ? row[catIdx] : 'Lifestyle Essentials';
+      let rawImg = imgIdx !== -1 && row[imgIdx] ? row[imgIdx].trim() : 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=800&q=80';
+      if (rawImg.startsWith('//')) rawImg = `https:${rawImg}`;
       const rawDesc = descIdx !== -1 && row[descIdx] ? row[descIdx] : 'Factory direct dropship inventory.';
 
       items.push({
@@ -219,6 +220,7 @@ export const CSVInventoryManager: React.FC<CSVInventoryManagerProps> = ({
         stock: isNaN(rawStock) ? 80 : rawStock,
         category: rawCat,
         image: rawImg,
+        images: [rawImg],
         description: rawDesc,
       });
     }
