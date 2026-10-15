@@ -1,9 +1,10 @@
 -- ==============================================================================
--- KOVIRA & SHIVORA STORE - FINAL SUPABASE POSTGRESQL SCHEMA SETTINGS
+-- KOVIRA & SHIVORA STORE - FINAL UPDATED SUPABASE POSTGRESQL SCHEMA
 -- ==============================================================================
--- Setup for: Supabase + Vercel Hosting + GitHub
+-- Target Stack: Supabase PostgreSQL + Vercel Hosting + GitHub
 -- Platforms: DeoDap, Baapstore, CJ Dropshipping, Shivora Boutique
--- Payment: Direct UPI Gateway (9656850012@upi) & QR Scan & Pay
+-- Payments: Direct UPI Gateway (9656850012@upi) & QR Scan & Pay
+-- Safe & Idempotent: Can be run on brand new OR existing Supabase projects!
 -- ==============================================================================
 -- Run this script in: Supabase Dashboard -> SQL Editor -> New Query -> Run
 -- ==============================================================================
@@ -50,6 +51,7 @@ CREATE TABLE IF NOT EXISTS public.products (
     images TEXT[] DEFAULT ARRAY[]::TEXT[],
     rating NUMERIC(3, 2) DEFAULT 4.8,
     reviews_count INTEGER DEFAULT 28,
+    reviews JSONB DEFAULT '[]'::jsonb,
     tags TEXT[] DEFAULT ARRAY[]::TEXT[],
     weight_kg NUMERIC(6, 3) DEFAULT 0.450,
     is_dropshipped BOOLEAN DEFAULT true,
@@ -66,6 +68,18 @@ CREATE TABLE IF NOT EXISTS public.products (
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Safe Column Migrations for Existing 'products' tables
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS reviews JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS wholesale_inr NUMERIC(10, 2) DEFAULT 350;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS delivery_charge_inr NUMERIC(10, 2) DEFAULT 0;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS min_price_floor_inr NUMERIC(10, 2) DEFAULT 99;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS margin_percent NUMERIC(5, 2) DEFAULT 50;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS is_published BOOLEAN DEFAULT true;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS live_sync JSONB DEFAULT '{}'::jsonb;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS discount_percent NUMERIC(5, 2) DEFAULT 0;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS show_discount_banner BOOLEAN DEFAULT false;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS discount_banner_text TEXT;
 
 -- ------------------------------------------------------------------------------
 -- 3. DRESSES TABLE (Shivora Collections In-House Boutique)
@@ -96,12 +110,18 @@ CREATE TABLE IF NOT EXISTS public.dresses (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Safe Column Migrations for Existing 'dresses' tables
+ALTER TABLE public.dresses ADD COLUMN IF NOT EXISTS delivery_charge_inr NUMERIC(10, 2) DEFAULT 80;
+ALTER TABLE public.dresses ADD COLUMN IF NOT EXISTS show_discount BOOLEAN DEFAULT false;
+ALTER TABLE public.dresses ADD COLUMN IF NOT EXISTS discount_percent NUMERIC(5, 2) DEFAULT 0;
+ALTER TABLE public.dresses ADD COLUMN IF NOT EXISTS is_published BOOLEAN DEFAULT true;
+
 -- ------------------------------------------------------------------------------
 -- 4. UPLOADED WEB LINKS TABLE (Drop Ship Hub Link Importer & Margin Rules)
 -- ------------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS public.uploaded_web_links (
     id TEXT PRIMARY KEY DEFAULT ('link_' || substring(uuid_generate_v4()::text, 1, 8)),
-    url TEXT NOT NULL,
+    url TEXT NOT NULL UNIQUE,
     title TEXT NOT NULL,
     supplier_name TEXT DEFAULT 'DeoDap Dropship Logistics',
     supplier_platform TEXT DEFAULT 'DeoDap',
@@ -117,6 +137,13 @@ CREATE TABLE IF NOT EXISTS public.uploaded_web_links (
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Safe Column Migrations for Existing 'uploaded_web_links' tables
+ALTER TABLE public.uploaded_web_links ADD COLUMN IF NOT EXISTS margin_percent NUMERIC(5, 2) DEFAULT 50;
+ALTER TABLE public.uploaded_web_links ADD COLUMN IF NOT EXISTS discount_percent NUMERIC(5, 2) DEFAULT 0;
+ALTER TABLE public.uploaded_web_links ADD COLUMN IF NOT EXISTS has_discount_banner BOOLEAN DEFAULT false;
+ALTER TABLE public.uploaded_web_links ADD COLUMN IF NOT EXISTS discount_banner_text TEXT;
+ALTER TABLE public.uploaded_web_links ADD COLUMN IF NOT EXISTS min_price_floor_inr NUMERIC(10, 2) DEFAULT 99;
 
 -- ------------------------------------------------------------------------------
 -- 5. STORE OFFERS & SEASONAL OFFERS TABLE
@@ -243,6 +270,13 @@ CREATE TABLE IF NOT EXISTS public.orders (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Safe Column Migrations for Existing 'orders' tables
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS upi_details JSONB DEFAULT '{}'::jsonb;
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS carrier TEXT DEFAULT 'Delhivery / Blue Dart / CJPacket';
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS estimated_delivery TEXT DEFAULT '2–3 Business Days';
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS tracking_number TEXT;
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS tracking_url TEXT;
+
 -- ------------------------------------------------------------------------------
 -- 11. ORDER ITEMS TABLE
 -- ------------------------------------------------------------------------------
@@ -263,7 +297,21 @@ CREATE TABLE IF NOT EXISTS public.order_items (
 );
 
 -- ------------------------------------------------------------------------------
--- 12. ANNOUNCEMENTS & STORE BANNERS TABLE
+-- 12. PRODUCT REVIEWS TABLE (Customer Ratings & Reviews)
+-- ------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.product_reviews (
+    id TEXT PRIMARY KEY DEFAULT ('rev_' || substring(uuid_generate_v4()::text, 1, 12)),
+    product_id TEXT REFERENCES public.products(id) ON DELETE CASCADE,
+    customer_name TEXT NOT NULL DEFAULT 'Verified Buyer',
+    rating INTEGER NOT NULL DEFAULT 5 CHECK (rating >= 1 AND rating <= 5),
+    comment TEXT NOT NULL,
+    photos TEXT[] DEFAULT ARRAY[]::TEXT[],
+    verified_purchase BOOLEAN DEFAULT true,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ------------------------------------------------------------------------------
+-- 13. ANNOUNCEMENTS & STORE BANNERS TABLE
 -- ------------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS public.announcements (
     id TEXT PRIMARY KEY DEFAULT ('ann_' || substring(uuid_generate_v4()::text, 1, 8)),
@@ -277,7 +325,7 @@ CREATE TABLE IF NOT EXISTS public.announcements (
 );
 
 -- ==============================================================================
--- INDEXES FOR HIGH PERFORMANCE
+-- INDEXES FOR HIGH-SPEED QUERY PERFORMANCE
 -- ==============================================================================
 CREATE INDEX IF NOT EXISTS idx_products_category ON public.products(category);
 CREATE INDEX IF NOT EXISTS idx_products_supplier_id ON public.products(supplier_id);
@@ -297,6 +345,7 @@ CREATE INDEX IF NOT EXISTS idx_orders_created_at ON public.orders(created_at DES
 CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON public.order_items(order_id);
 CREATE INDEX IF NOT EXISTS idx_uploaded_web_links_status ON public.uploaded_web_links(status);
 CREATE INDEX IF NOT EXISTS idx_store_offers_is_active ON public.store_offers(is_active);
+CREATE INDEX IF NOT EXISTS idx_product_reviews_product_id ON public.product_reviews(product_id);
 
 -- ==============================================================================
 -- ROW LEVEL SECURITY (RLS) POLICIES
@@ -313,8 +362,9 @@ ALTER TABLE public.payment_settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.announcements ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.customer_users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.saved_addresses ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.product_reviews ENABLE ROW LEVEL SECURITY;
 
--- 1. Public Read Policies for Storefront
+-- 1. Storefront Public Read Policies
 DROP POLICY IF EXISTS "Public can view published products" ON public.products;
 CREATE POLICY "Public can view published products"
 ON public.products FOR SELECT
@@ -340,7 +390,12 @@ CREATE POLICY "Public can view active payment settings"
 ON public.payment_settings FOR SELECT
 USING (is_active = true);
 
--- 2. Customer Order Policies
+DROP POLICY IF EXISTS "Public can view product reviews" ON public.product_reviews;
+CREATE POLICY "Public can view product reviews"
+ON public.product_reviews FOR SELECT
+USING (true);
+
+-- 2. Customer Order & Review Policies
 DROP POLICY IF EXISTS "Anyone can create orders" ON public.orders;
 CREATE POLICY "Anyone can create orders"
 ON public.orders FOR INSERT
@@ -352,14 +407,11 @@ ON public.order_items FOR INSERT
 WITH CHECK (true);
 
 DROP POLICY IF EXISTS "Customers can track orders by number or phone" ON public.orders;
-DROP POLICY IF EXISTS "Customers can track their own orders by order number or email" ON public.orders;
-DROP POLICY IF EXISTS "Customers can track orders" ON public.orders;
 CREATE POLICY "Customers can track orders by number or phone"
 ON public.orders FOR SELECT
 USING (true);
 
 DROP POLICY IF EXISTS "Customers can view items of tracked orders" ON public.order_items;
-DROP POLICY IF EXISTS "Customers can track items" ON public.order_items;
 CREATE POLICY "Customers can view items of tracked orders"
 ON public.order_items FOR SELECT
 USING (true);
@@ -368,6 +420,11 @@ DROP POLICY IF EXISTS "Allow customers to cancel active order" ON public.orders;
 CREATE POLICY "Allow customers to cancel active order"
 ON public.orders FOR UPDATE
 USING (true)
+WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Anyone can post product reviews" ON public.product_reviews;
+CREATE POLICY "Anyone can post product reviews"
+ON public.product_reviews FOR INSERT
 WITH CHECK (true);
 
 -- 3. Full Access for Service Role / Admin Backend
@@ -407,11 +464,14 @@ CREATE POLICY "Service role full access customer_users" ON public.customer_users
 DROP POLICY IF EXISTS "Service role full access saved_addresses" ON public.saved_addresses;
 CREATE POLICY "Service role full access saved_addresses" ON public.saved_addresses FOR ALL USING (true);
 
+DROP POLICY IF EXISTS "Service role full access product_reviews" ON public.product_reviews;
+CREATE POLICY "Service role full access product_reviews" ON public.product_reviews FOR ALL USING (true);
+
 -- ==============================================================================
 -- INITIAL SEED DATA
 -- ==============================================================================
 
--- Suppliers: DeoDap, Baapstore, CJ Dropshipping, Shivora
+-- 1. Suppliers: DeoDap, Baapstore, CJ Dropshipping, Shivora
 INSERT INTO public.suppliers (id, name, contact_person, email, phone, country, lead_time_days, fulfillment_method, active_products_count)
 VALUES
     ('sup_deodap', 'DeoDap Dropship Logistics (Rajkot Central Hub, Gujarat)', 'Rajkot Fulfillment Team', 'b2b-fulfillment@deodap.com', '+91 98250 12345', 'India', 2, 'Automated EDI', 450),
@@ -420,7 +480,7 @@ VALUES
     ('sup_shivora', 'Shivora In-House Boutique (Surat & Ahmedabad Hub)', 'Boutique Dispatch Manager', 'orders@shivoracollections.in', '+91 98765 43210', 'India', 1, 'In-House Direct', 25)
 ON CONFLICT (id) DO NOTHING;
 
--- Dropship Integration Settings (Default API Keys & Multipliers)
+-- 2. Dropship Integration Settings (Default API Keys & Multipliers)
 INSERT INTO public.dropship_settings (platform, api_key, api_secret, partner_id, email, endpoint_url, webhook_url, sync_pricing, sync_inventory, auto_push_orders, pricing_markup_multiplier, default_margin_percent, default_shipping_carrier, fulfillment_warehouse, is_connected)
 VALUES
     ('CJdropshipping', 'cjdropship_live_token_9921fa40c', '••••••••••••••••', 'CJ-PARTNER-79124', 'support@cjdropshipping.com', 'https://developers.cjdropshipping.com/api2.0/v1', 'https://kovira.app/api/dropship/webhook/cjdropshipping', true, true, true, 2.4, 50, 'CJPacket Fast Line / USPS Priority Direct', 'CJ US West Warehouse (Chino, CA)', true),
@@ -428,19 +488,19 @@ VALUES
     ('Baapstore', 'baapstore_token_910482', '••••••••••••••••', 'BAAP-MERCHANT-8102', 'partner-orders@baapstore.com', 'https://api.baapstore.com/v2', 'https://kovira.app/api/dropship/webhook/baapstore', true, true, true, 2.0, 50, 'Blue Dart / Ecom Express', 'Baapstore Express Hub (Chennai, Tamil Nadu)', true)
 ON CONFLICT (platform) DO NOTHING;
 
--- UPI Payment Settings (UPI ID 9656850012@upi)
+-- 3. UPI Payment Settings (UPI ID 9656850012@upi)
 INSERT INTO public.payment_settings (id, gateway_type, upi_id, payee_name, qr_code_enabled, is_active, min_transaction_inr, max_transaction_inr, instructions)
 VALUES
     ('upi_primary', 'UPI_QR', '9656850012@upi', 'Kovira & Shivora Retail', true, true, 1, 100000, 'Scan QR code with GPay, PhonePe, Paytm or BHIM UPI and enter Transaction ID (UTR)')
 ON CONFLICT (id) DO NOTHING;
 
--- Store Announcements
+-- 4. Store Announcements
 INSERT INTO public.announcements (id, tag, message, promo_code, discount_percent, is_enabled)
 VALUES
     ('ann_default', '✨ FESTIVE OFFER:', 'Free Delivery on all orders over ₹999', 'KOVIRA10', 10, true)
 ON CONFLICT (id) DO NOTHING;
 
--- Store Offers (Seasonal & Product Offers)
+-- 5. Store Offers (Seasonal & Product Offers)
 INSERT INTO public.store_offers (id, title, offer_type, promo_code, discount_percent, min_order_value_inr, is_active, banner_message, badge_label)
 VALUES
     ('off_seasonal_festive', 'Festive Season Special Deal', 'seasonal', 'DIWALI25', 25, 999, true, 'Flat 25% OFF on all Festive Season orders above ₹999', 'Seasonal Festive Offer'),
