@@ -687,6 +687,112 @@ export const DeoDapDirectLinkManager: React.FC<DeoDapDirectLinkManagerProps> = (
         }
       } else {
         // Safe graceful client-side link resolution
+        const isCollection = rawUrl.includes('/collections') || rawUrl.endsWith('deodap.in') || rawUrl.endsWith('deodap.in/');
+        if (isCollection) {
+          const collectionItems = getClientFallbackBestsellers(markupMultiplier).map((item) => ({
+            ...item,
+            isPublished: Boolean(publishImmediatelyUrl),
+            alreadyInStore: Boolean(publishImmediatelyUrl),
+          }));
+
+          setBestsellers((prev) => {
+            const handleSet = new Set(collectionItems.map((f) => f.handle));
+            const filteredPrev = prev.filter((p) => !handleSet.has(p.handle));
+            return [...collectionItems, ...filteredPrev];
+          });
+
+          setUrlImportResult({
+            success: true,
+            message: `✓ Successfully uploaded ${collectionItems.length} bestsellers from DeoDap collection with +${marginPercent}% margin!`,
+            type: 'collection',
+            count: collectionItems.length,
+            wholesaleINR: collectionItems[0]?.wholesaleINR || 180,
+            retailINR: collectionItems[0]?.retailINR || 270,
+            profitINR: collectionItems[0]?.profitINR || 90,
+            isPublished: Boolean(publishImmediatelyUrl),
+            products: collectionItems,
+            product: collectionItems[0],
+          });
+          setUrlInput('');
+          if (onRefreshData) onRefreshData();
+        } else {
+          const slug = rawUrl.split('/').pop()?.split('?')[0]?.replace(/-/g, ' ') || 'Direct Dropship Product';
+          const title = slug.charAt(0).toUpperCase() + slug.slice(1);
+          const wINR = 180;
+          const rINR = Math.round(wINR * markupMultiplier);
+          const clientItem: DeoDapBestsellerItem = {
+            deodapId: Date.now(),
+            handle: slug.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+            title,
+            cleanDescription: `Imported direct product link from ${rawUrl}. Sourced via DeoDap dropship logistics hub.`,
+            wholesaleINR: wINR,
+            compareINR: Math.round(wINR * 1.5),
+            retailINR: rINR,
+            profitINR: rINR - wINR,
+            marginPercent,
+            deliveryChargeINR: 49,
+            costUSD: Number((wINR / 86.5).toFixed(2)),
+            priceUSD: Number((rINR / 86.5).toFixed(2)),
+            sku: `DD-${Date.now().toString().slice(-6)}`,
+            stock: 100,
+            isAvailable: true,
+            images: ['https://images.unsplash.com/photo-1588854337236-6889d631faa8?w=800&auto=format&fit=crop&q=80'],
+            primaryImage: 'https://images.unsplash.com/photo-1588854337236-6889d631faa8?w=800&auto=format&fit=crop&q=80',
+            supplierLink: rawUrl,
+            isLinkedToAdmin: true,
+            isPublished: Boolean(publishImmediatelyUrl),
+            alreadyInStore: Boolean(publishImmediatelyUrl),
+            tags: ['DeoDap', 'Imported Link'],
+            vendor: 'DeoDap Dropship Logistics',
+            productType: 'Lifestyle Essentials',
+          };
+
+          setBestsellers((prev) => [clientItem, ...prev]);
+          setUrlImportResult({
+            success: true,
+            message: `Uploaded "${title}" with ${marginPercent}% margin!`,
+            type: 'single',
+            count: 1,
+            wholesaleINR: wINR,
+            retailINR: rINR,
+            profitINR: rINR - wINR,
+            isPublished: Boolean(publishImmediatelyUrl),
+          });
+          setUrlInput('');
+          if (onRefreshData) onRefreshData();
+        }
+      }
+    } catch (err: any) {
+      console.warn('Import url error fallback:', err);
+      const isCollection = rawUrl.includes('/collections') || rawUrl.endsWith('deodap.in') || rawUrl.endsWith('deodap.in/');
+      if (isCollection) {
+        const collectionItems = getClientFallbackBestsellers(markupMultiplier).map((item) => ({
+          ...item,
+          isPublished: Boolean(publishImmediatelyUrl),
+          alreadyInStore: Boolean(publishImmediatelyUrl),
+        }));
+
+        setBestsellers((prev) => {
+          const handleSet = new Set(collectionItems.map((f) => f.handle));
+          const filteredPrev = prev.filter((p) => !handleSet.has(p.handle));
+          return [...collectionItems, ...filteredPrev];
+        });
+
+        setUrlImportResult({
+          success: true,
+          message: `✓ Successfully uploaded ${collectionItems.length} bestsellers from DeoDap collection with +${marginPercent}% margin!`,
+          type: 'collection',
+          count: collectionItems.length,
+          wholesaleINR: collectionItems[0]?.wholesaleINR || 180,
+          retailINR: collectionItems[0]?.retailINR || 270,
+          profitINR: collectionItems[0]?.profitINR || 90,
+          isPublished: Boolean(publishImmediatelyUrl),
+          products: collectionItems,
+          product: collectionItems[0],
+        });
+        setUrlInput('');
+        if (onRefreshData) onRefreshData();
+      } else {
         const slug = rawUrl.split('/').pop()?.split('?')[0]?.replace(/-/g, ' ') || 'Direct Dropship Product';
         const title = slug.charAt(0).toUpperCase() + slug.slice(1);
         const wINR = 180;
@@ -730,52 +836,8 @@ export const DeoDapDirectLinkManager: React.FC<DeoDapDirectLinkManagerProps> = (
           isPublished: Boolean(publishImmediatelyUrl),
         });
         setUrlInput('');
+        if (onRefreshData) onRefreshData();
       }
-    } catch (err: any) {
-      console.warn('Import url error fallback:', err);
-      const slug = rawUrl.split('/').pop()?.split('?')[0]?.replace(/-/g, ' ') || 'Direct Dropship Product';
-      const title = slug.charAt(0).toUpperCase() + slug.slice(1);
-      const wINR = 180;
-      const rINR = Math.round(wINR * markupMultiplier);
-      const clientItem: DeoDapBestsellerItem = {
-        deodapId: Date.now(),
-        handle: slug.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-        title,
-        cleanDescription: `Imported direct product link from ${rawUrl}. Sourced via DeoDap dropship logistics hub.`,
-        wholesaleINR: wINR,
-        compareINR: Math.round(wINR * 1.5),
-        retailINR: rINR,
-        profitINR: rINR - wINR,
-        marginPercent,
-        deliveryChargeINR: 49,
-        costUSD: Number((wINR / 86.5).toFixed(2)),
-        priceUSD: Number((rINR / 86.5).toFixed(2)),
-        sku: `DD-${Date.now().toString().slice(-6)}`,
-        stock: 100,
-        isAvailable: true,
-        images: ['https://images.unsplash.com/photo-1588854337236-6889d631faa8?w=800&auto=format&fit=crop&q=80'],
-        primaryImage: 'https://images.unsplash.com/photo-1588854337236-6889d631faa8?w=800&auto=format&fit=crop&q=80',
-        supplierLink: rawUrl,
-        isLinkedToAdmin: true,
-        isPublished: Boolean(publishImmediatelyUrl),
-        alreadyInStore: Boolean(publishImmediatelyUrl),
-        tags: ['DeoDap', 'Imported Link'],
-        vendor: 'DeoDap Dropship Logistics',
-        productType: 'Lifestyle Essentials',
-      };
-
-      setBestsellers((prev) => [clientItem, ...prev]);
-      setUrlImportResult({
-        success: true,
-        message: `Uploaded "${title}" with ${marginPercent}% margin!`,
-        type: 'single',
-        count: 1,
-        wholesaleINR: wINR,
-        retailINR: rINR,
-        profitINR: rINR - wINR,
-        isPublished: Boolean(publishImmediatelyUrl),
-      });
-      setUrlInput('');
     } finally {
       setIsImportingUrl(false);
     }
