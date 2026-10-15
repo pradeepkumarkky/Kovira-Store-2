@@ -2975,6 +2975,7 @@ app.post('/api/dropship/test-connection', (req: Request, res: Response) => {
 
 // MULTI-SUPPLIER DROPSHIP PLATFORMS & CATALOG API (DeoDap, Baapstore)
 import { DROPSHIP_PLATFORMS, DROPSHIP_CATALOG_ITEMS } from './src/data/dropshipSuppliersData';
+import { DEODAP_CATEGORIES_DATA } from './src/data/deodapCategories';
 
 // 1. Get all supported dropship platforms with metadata and status
 app.get('/api/dropship/platforms', (req: Request, res: Response) => {
@@ -3620,42 +3621,82 @@ app.get('/api/dropship/deodap/direct-bestsellers', async (req: Request, res: Res
     });
   } catch (err: any) {
     console.error('Error fetching live DeoDap products.json, using verified live catalog fallback:', err.message);
-    const deodapProds = products.filter(
-      (p) => p.supplierPlatform === 'DeoDap' || (p.supplierName || '').includes('DeoDap')
-    );
-    const fallbackList = deodapProds.map((p) => {
-      const wholesaleINR = p.wholesaleINR || Math.round(p.costUSD * INR_RATE);
-      const marginPercent = Math.round((markupMultiplier - 1) * 100);
-      const marginAmountINR = Math.round(wholesaleINR * (marginPercent / 100));
-      const retailINR = wholesaleINR + marginAmountINR;
-      return {
-        deodapId: Math.floor(Math.random() * 100000),
-        handle: (p.supplierLink || '').split('/').pop() || p.sku,
-        title: p.title,
-        cleanDescription: p.description,
-        wholesaleINR,
-        compareINR: Math.round(wholesaleINR * 1.5),
-        retailINR,
-        profitINR: marginAmountINR,
-        marginPercent,
-        deliveryChargeINR: p.deliveryChargeINR || 49,
-        costUSD: p.costUSD,
-        priceUSD: Number((p.costUSD * markupMultiplier).toFixed(2)),
-        sku: p.sku,
-        stock: p.stock,
-        isAvailable: true,
-        images: p.images,
-        primaryImage: p.images[0],
-        supplierLink: p.supplierLink || 'https://deodap.in',
-        isLinkedToAdmin: true,
-        isPublished: p.isPublished !== false,
-        alreadyInStore: p.isPublished !== false,
-        storeProductId: p.id,
-        tags: p.tags,
-        vendor: 'DeoDap',
-        productType: p.category,
-      };
-    });
+    const marginPercent = Math.round((markupMultiplier - 1) * 100);
+    const fallbackList: any[] = [];
+
+    // 1. First add all category sample products from Screenshot 2
+    for (const cat of DEODAP_CATEGORIES_DATA) {
+      for (const p of cat.sampleProducts) {
+        const wholesaleINR = p.wholesaleINR;
+        const marginAmountINR = Math.round(wholesaleINR * (marginPercent / 100));
+        const retailINR = wholesaleINR + marginAmountINR;
+        const costUSD = Number((wholesaleINR / INR_RATE).toFixed(2));
+        const priceUSD = Number((costUSD * markupMultiplier).toFixed(2));
+
+        fallbackList.push({
+          deodapId: Math.floor(10000 + Math.random() * 90000),
+          handle: p.title.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+          title: p.title,
+          cleanDescription: p.description,
+          wholesaleINR,
+          compareINR: Math.round(wholesaleINR * 1.5),
+          retailINR,
+          profitINR: marginAmountINR,
+          marginPercent,
+          deliveryChargeINR: 49,
+          costUSD,
+          priceUSD,
+          sku: p.sku,
+          stock: p.stock,
+          isAvailable: true,
+          images: [p.image],
+          primaryImage: p.image,
+          supplierLink: p.supplierLink,
+          isLinkedToAdmin: true,
+          isPublished: false,
+          alreadyInStore: false,
+          tags: ['DeoDap', cat.name, p.subcategory, 'Catalog Direct'],
+          vendor: 'DeoDap Dropship Logistics',
+          productType: cat.name,
+        });
+      }
+    }
+
+    // 2. Add catalog items from DeoDap
+    for (const p of DROPSHIP_CATALOG_ITEMS) {
+      if (p.platform === 'DeoDap') {
+        const wholesaleINR = Math.round(p.costUSD * INR_RATE);
+        const marginAmountINR = Math.round(wholesaleINR * (marginPercent / 100));
+        const retailINR = wholesaleINR + marginAmountINR;
+
+        fallbackList.push({
+          deodapId: Math.floor(10000 + Math.random() * 90000),
+          handle: (p.supplierLink || '').split('/').pop() || p.sku,
+          title: p.title,
+          cleanDescription: p.description,
+          wholesaleINR,
+          compareINR: Math.round(wholesaleINR * 1.6),
+          retailINR,
+          profitINR: marginAmountINR,
+          marginPercent,
+          deliveryChargeINR: 49,
+          costUSD: p.costUSD,
+          priceUSD: Number((p.costUSD * markupMultiplier).toFixed(2)),
+          sku: p.sku || `DD-${Date.now()}`,
+          stock: p.stock || 120,
+          isAvailable: true,
+          images: p.images,
+          primaryImage: p.images[0],
+          supplierLink: p.supplierLink || 'https://deodap.in',
+          isLinkedToAdmin: true,
+          isPublished: false,
+          alreadyInStore: false,
+          tags: p.tags,
+          vendor: 'DeoDap Dropship Logistics',
+          productType: p.category,
+        });
+      }
+    }
 
     res.json({
       success: true,

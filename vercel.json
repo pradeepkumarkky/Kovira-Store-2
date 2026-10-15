@@ -40,6 +40,10 @@
       "destination": "/api/customer/profile"
     },
     {
+      "source": "/api/dropship/deodap/direct-bestsellers",
+      "destination": "/api/dropship/deodap/direct-bestsellers"
+    },
+    {
       "source": "/api/dropship/deodap/import-url",
       "destination": "/api/dropship/deodap/import-url"
     },

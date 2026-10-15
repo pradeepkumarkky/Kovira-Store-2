@@ -6,6 +6,7 @@ import profileHandler from './customer/profile';
 import adminLoginHandler from './admin/login';
 import importUrlHandler from './dropship/deodap/import-url';
 import deodapManageHandler from './dropship/deodap/manage';
+import directBestsellersHandler from './dropship/deodap/direct-bestsellers';
 import uploadedLinksHandler from './dropship/uploaded-links';
 import productsHandler from './products';
 import checkoutHandler from './checkout';
@@ -60,6 +61,10 @@ export default async function handler(req: any, res: any) {
     pathname.includes('/dropship/web-link/upload')
   ) {
     return importUrlHandler(req, res);
+  }
+
+  if (pathname.includes('/dropship/deodap/direct-bestsellers')) {
+    return directBestsellersHandler(req, res);
   }
 
   if (
