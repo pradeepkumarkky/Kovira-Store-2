@@ -12,6 +12,10 @@
       "destination": "/api/products"
     },
     {
+      "source": "/api/checkout",
+      "destination": "/api/checkout"
+    },
+    {
       "source": "/api/customer/register",
       "destination": "/api/customer/register"
     },

@@ -5,8 +5,10 @@ import addressHandler from './customer/address';
 import profileHandler from './customer/profile';
 import adminLoginHandler from './admin/login';
 import importUrlHandler from './dropship/deodap/import-url';
+import deodapManageHandler from './dropship/deodap/manage';
 import uploadedLinksHandler from './dropship/uploaded-links';
 import productsHandler from './products';
+import checkoutHandler from './checkout';
 
 export default async function handler(req: any, res: any) {
   // CORS
@@ -20,6 +22,10 @@ export default async function handler(req: any, res: any) {
 
   const url = req.url || '';
   const pathname = url.split('?')[0];
+
+  if (pathname.endsWith('/checkout') || pathname === '/api/checkout') {
+    return checkoutHandler(req, res);
+  }
 
   if (pathname.endsWith('/products') || pathname.includes('/api/products')) {
     return productsHandler(req, res);
@@ -54,6 +60,15 @@ export default async function handler(req: any, res: any) {
     pathname.includes('/dropship/web-link/upload')
   ) {
     return importUrlHandler(req, res);
+  }
+
+  if (
+    pathname.includes('/dropship/deodap/link-admin') ||
+    pathname.includes('/dropship/deodap/publish') ||
+    pathname.includes('/dropship/deodap/unpublish') ||
+    pathname.includes('/dropship/deodap/update-margins')
+  ) {
+    return deodapManageHandler(req, res);
   }
 
   if (pathname.includes('/dropship/uploaded-links')) {

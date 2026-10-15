@@ -277,6 +277,7 @@ export default async function handler(req: any, res: any) {
             },
           };
         });
+      }
     }
 
     if (supabaseProducts.length > 0) {
