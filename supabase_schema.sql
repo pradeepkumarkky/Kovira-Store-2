@@ -80,6 +80,8 @@ ALTER TABLE public.products ADD COLUMN IF NOT EXISTS live_sync JSONB DEFAULT '{}
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS discount_percent NUMERIC(5, 2) DEFAULT 0;
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS show_discount_banner BOOLEAN DEFAULT false;
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS discount_banner_text TEXT;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS last_synced TIMESTAMPTZ DEFAULT NOW();
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS external_product_id TEXT;
 
 -- ------------------------------------------------------------------------------
 -- 3. DRESSES TABLE (Shivora Collections In-House Boutique)
@@ -331,6 +333,11 @@ CREATE INDEX IF NOT EXISTS idx_products_category ON public.products(category);
 CREATE INDEX IF NOT EXISTS idx_products_supplier_id ON public.products(supplier_id);
 CREATE INDEX IF NOT EXISTS idx_products_sku ON public.products(sku);
 CREATE INDEX IF NOT EXISTS idx_products_is_published ON public.products(is_published);
+CREATE INDEX IF NOT EXISTS idx_products_supplier_platform ON public.products(supplier_platform);
+CREATE INDEX IF NOT EXISTS idx_products_external_product_id ON public.products(external_product_id);
+
+CREATE INDEX IF NOT EXISTS idx_customer_users_email ON public.customer_users(email);
+CREATE INDEX IF NOT EXISTS idx_saved_addresses_user_id ON public.saved_addresses(user_id);
 
 CREATE INDEX IF NOT EXISTS idx_dresses_category ON public.dresses(category);
 CREATE INDEX IF NOT EXISTS idx_dresses_sku ON public.dresses(sku);
@@ -461,8 +468,29 @@ CREATE POLICY "Service role full access announcements" ON public.announcements F
 DROP POLICY IF EXISTS "Service role full access customer_users" ON public.customer_users;
 CREATE POLICY "Service role full access customer_users" ON public.customer_users FOR ALL USING (true);
 
+DROP POLICY IF EXISTS "Public can register customer accounts" ON public.customer_users;
+CREATE POLICY "Public can register customer accounts" ON public.customer_users FOR INSERT WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Public can query customer accounts" ON public.customer_users;
+CREATE POLICY "Public can query customer accounts" ON public.customer_users FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Public can update customer accounts" ON public.customer_users;
+CREATE POLICY "Public can update customer accounts" ON public.customer_users FOR UPDATE USING (true) WITH CHECK (true);
+
 DROP POLICY IF EXISTS "Service role full access saved_addresses" ON public.saved_addresses;
 CREATE POLICY "Service role full access saved_addresses" ON public.saved_addresses FOR ALL USING (true);
+
+DROP POLICY IF EXISTS "Public can manage saved addresses" ON public.saved_addresses;
+CREATE POLICY "Public can manage saved addresses" ON public.saved_addresses FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Public can view suppliers" ON public.suppliers;
+CREATE POLICY "Public can view suppliers" ON public.suppliers FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Public can manage uploaded web links" ON public.uploaded_web_links;
+CREATE POLICY "Public can manage uploaded web links" ON public.uploaded_web_links FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Public can manage dropship settings" ON public.dropship_settings;
+CREATE POLICY "Public can manage dropship settings" ON public.dropship_settings FOR ALL USING (true) WITH CHECK (true);
 
 DROP POLICY IF EXISTS "Service role full access product_reviews" ON public.product_reviews;
 CREATE POLICY "Service role full access product_reviews" ON public.product_reviews FOR ALL USING (true);

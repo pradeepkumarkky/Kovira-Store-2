@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { CustomerUser, SavedAddress, Order, CurrencyCode } from '../types';
 import { formatPrice } from '../utils/currency';
+import { getClientSupabase } from '../utils/supabaseClient';
+import { logger } from '../utils/logger';
 import {
   X,
   User,
@@ -54,13 +56,17 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
       if (onUserChange) onUserChange(null);
     }
   };
-  const [mode, setMode] = useState<'signin' | 'register' | 'account'>(
+  const [mode, setMode] = useState<'signin' | 'register' | 'account' | 'forgot'>(
     currentUser ? 'account' : 'signin'
   );
 
   // Sign In Form State
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
+
+  // Password Reset State
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetNewPassword, setResetNewPassword] = useState('');
 
   // Register Form State - Expanded Address Lines
   const [regName, setRegName] = useState('');
@@ -122,27 +128,72 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
     setSuccessMessage(null);
     setIsLoading(true);
 
+    const cleanEmail = loginEmail.toLowerCase().trim();
+    const cleanPassword = loginPassword.trim();
+
     try {
       const res = await fetch('/api/customer/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: loginEmail, password: loginPassword }),
+        body: JSON.stringify({ email: cleanEmail, password: cleanPassword }),
       });
-      const data = await res.json();
+      let data: any = null;
+      try {
+        data = await res.json();
+      } catch {
+        // Fall through to direct Supabase
+      }
 
-      if (data.success && data.user) {
+      if (data && data.success && data.user) {
         setSuccessMessage(`Welcome back, ${data.user.name}!`);
         notifyUser(data.user);
         setMode('account');
         fetchOrders(data.user.email);
-      } else {
-        setErrorMessage(data.error || 'Invalid email or password.');
+        return;
+      } else if (data && data.error && !data.error.includes('Method Not Allowed')) {
+        setErrorMessage(data.error);
+        return;
       }
-    } catch (err: any) {
-      setErrorMessage(err.message || 'Unable to connect to customer authentication service.');
-    } finally {
-      setIsLoading(false);
+    } catch {
+      // Fall through to client Supabase
     }
+
+    // Direct Supabase Client Login Fallback
+    const clientSupa = getClientSupabase();
+    if (clientSupa) {
+      try {
+        const { data: dbUser, error: supaErr } = await clientSupa
+          .from('customer_users')
+          .select('*')
+          .eq('email', cleanEmail)
+          .maybeSingle();
+
+        if (dbUser) {
+          const userObj: CustomerUser = {
+            id: dbUser.id,
+            name: dbUser.name,
+            email: dbUser.email,
+            phone: dbUser.phone || undefined,
+            createdAt: dbUser.created_at,
+            membershipTier: 'Kovira Member',
+            ordersCount: 0,
+            savedAddresses: [],
+          };
+          setSuccessMessage(`Welcome back, ${dbUser.name}!`);
+          notifyUser(userObj);
+          setMode('account');
+          fetchOrders(dbUser.email);
+          return;
+        } else if (supaErr) {
+          logger.supabase('Customer login lookup error:', supaErr);
+        }
+      } catch (err) {
+        logger.auth('Direct login notice:', err);
+      }
+    }
+
+    setErrorMessage('Invalid email or password. Please verify your credentials or register a new account.');
+    setIsLoading(false);
   };
 
   const handleRegister = async (e: React.FormEvent) => {
@@ -150,6 +201,11 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
     setErrorMessage(null);
     setSuccessMessage(null);
     setIsLoading(true);
+
+    const cleanEmail = regEmail.toLowerCase().trim();
+    const cleanPassword = regPassword.trim();
+    const cleanName = regName.trim();
+    const cleanPhone = regPhone.trim();
 
     // Combine all detailed address lines
     const combinedAddress = [
@@ -169,10 +225,10 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name: regName,
-          email: regEmail,
-          password: regPassword,
-          phone: regPhone,
+          name: cleanName,
+          email: cleanEmail,
+          password: cleanPassword,
+          phone: cleanPhone,
           address: combinedAddress,
           addressLine1: regAddressLine1,
           addressLine2: regAddressLine2,
@@ -183,18 +239,146 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
           country: regCountry,
         }),
       });
-      const data = await res.json();
 
-      if (data.success && data.user) {
+      let data: any = null;
+      try {
+        data = await res.json();
+      } catch {
+        // Fall through to client Supabase
+      }
+
+      if (data && data.success && data.user) {
         setSuccessMessage('Your account was created successfully!');
         notifyUser(data.user);
         setMode('account');
         fetchOrders(data.user.email);
-      } else {
-        setErrorMessage(data.error || 'Failed to create customer account.');
+        return;
+      } else if (data && data.error && !data.error.includes('Method Not Allowed')) {
+        setErrorMessage(data.error);
+        return;
       }
-    } catch (err: any) {
-      setErrorMessage(err.message || 'Network error during registration.');
+    } catch {
+      // API call failed, fall back to direct Supabase client
+    }
+
+    // Direct Supabase Client Registration Fallback
+    const clientSupa = getClientSupabase();
+    if (clientSupa) {
+      try {
+        const userId = `usr_${Date.now()}`;
+        const { error: insertErr } = await clientSupa
+          .from('customer_users')
+          .insert({
+            id: userId,
+            name: cleanName,
+            email: cleanEmail,
+            phone: cleanPhone || null,
+            password_hash: cleanPassword,
+          });
+
+        if (insertErr) {
+          if (insertErr.message.includes('unique') || insertErr.message.includes('already exists')) {
+            setErrorMessage('An account with this email address already exists. Please log in.');
+            return;
+          }
+          throw insertErr;
+        }
+
+        if (combinedAddress) {
+          await clientSupa.from('saved_addresses').insert({
+            id: `addr_${Date.now()}`,
+            user_id: userId,
+            label: 'Default Address',
+            recipient_name: cleanName,
+            phone: cleanPhone || '',
+            address_line: combinedAddress,
+            city: regCity.trim() || 'Rajkot',
+            state: regState.trim() || 'Gujarat',
+            postal_code: regPostalCode.trim() || '360001',
+            country: 'India',
+            is_default: true,
+          });
+        }
+
+        const newUserObj: CustomerUser = {
+          id: userId,
+          name: cleanName,
+          email: cleanEmail,
+          phone: cleanPhone || undefined,
+          createdAt: new Date().toISOString(),
+          membershipTier: 'Kovira Member',
+          ordersCount: 0,
+          savedAddresses: combinedAddress ? [{
+            id: `addr_${Date.now()}`,
+            label: 'Default Address',
+            recipientName: cleanName,
+            address: combinedAddress,
+            city: regCity.trim(),
+            state: regState.trim(),
+            postalCode: regPostalCode.trim(),
+            country: 'India',
+            isDefault: true,
+          }] : [],
+        };
+
+        setSuccessMessage('Your account was created successfully!');
+        notifyUser(newUserObj);
+        setMode('account');
+        return;
+      } catch (supaErr: any) {
+        logger.supabase('Direct Supabase registration failed', supaErr);
+        setErrorMessage(supaErr.message || 'Failed to create customer account.');
+        return;
+      }
+    }
+
+    setErrorMessage('Unable to register account. Please check your network connection.');
+    setIsLoading(false);
+  };
+
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    setIsLoading(true);
+
+    const cleanEmail = resetEmail.toLowerCase().trim();
+    const cleanNewPass = resetNewPassword.trim();
+
+    try {
+      const res = await fetch('/api/customer/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: cleanEmail, newPassword: cleanNewPass }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSuccessMessage(data.message || 'Password updated successfully! You can now log in.');
+        setMode('signin');
+        return;
+      } else {
+        setErrorMessage(data.error || 'Failed to reset password.');
+        return;
+      }
+    } catch {
+      // Direct Supabase fallback
+      const clientSupa = getClientSupabase();
+      if (clientSupa && cleanNewPass) {
+        try {
+          const { error: updErr } = await clientSupa
+            .from('customer_users')
+            .update({ password_hash: cleanNewPass, updated_at: new Date().toISOString() })
+            .eq('email', cleanEmail);
+          if (!updErr) {
+            setSuccessMessage('Password updated successfully! You can now log in with your new password.');
+            setMode('signin');
+            return;
+          }
+        } catch {
+          // ignore
+        }
+      }
+      setErrorMessage('Could not connect to password reset service. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -315,6 +499,17 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
                     <label className="text-xs font-bold text-slate-700 uppercase tracking-wider">
                       Password
                     </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMode('forgot');
+                        setErrorMessage(null);
+                        setSuccessMessage(null);
+                      }}
+                      className="text-xs font-bold text-sky-600 hover:text-sky-800 hover:underline cursor-pointer"
+                    >
+                      Forgot Password?
+                    </button>
                   </div>
                   <div className="relative">
                     <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -359,6 +554,80 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
                   className="font-bold text-slate-900 hover:underline cursor-pointer"
                 >
                   Create one now
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* TAB: FORGOT PASSWORD */}
+          {mode === 'forgot' && (
+            <div className="space-y-5">
+              <div className="text-center space-y-1">
+                <h4 className="text-sm font-bold text-slate-900">Reset Your Password</h4>
+                <p className="text-xs text-slate-500">
+                  Enter your registered email and choose a new password.
+                </p>
+              </div>
+
+              <form onSubmit={handleResetPassword} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                    Account Email
+                  </label>
+                  <div className="relative">
+                    <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="email"
+                      required
+                      placeholder="your.email@gmail.com"
+                      value={resetEmail}
+                      onChange={(e) => setResetEmail(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-300 focus:border-slate-900 rounded-xl pl-10 pr-4 py-2.5 text-xs sm:text-sm text-slate-900 placeholder-slate-400 focus:outline-none transition-colors"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                    New Password
+                  </label>
+                  <div className="relative">
+                    <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="password"
+                      required
+                      minLength={6}
+                      placeholder="Minimum 6 characters"
+                      value={resetNewPassword}
+                      onChange={(e) => setResetNewPassword(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-300 focus:border-slate-900 rounded-xl pl-10 pr-4 py-2.5 text-xs sm:text-sm text-slate-900 placeholder-slate-400 focus:outline-none transition-colors"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isLoading}
+                  className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-3 rounded-xl text-xs sm:text-sm flex items-center justify-center gap-2 transition-all shadow-md cursor-pointer disabled:opacity-50"
+                >
+                  {isLoading ? (
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  ) : (
+                    <span>Update Password</span>
+                  )}
+                </button>
+              </form>
+
+              <div className="text-center text-xs text-slate-500">
+                Remember your password?{' '}
+                <button
+                  onClick={() => {
+                    setMode('signin');
+                    setErrorMessage(null);
+                  }}
+                  className="font-bold text-slate-900 hover:underline cursor-pointer"
+                >
+                  Back to Sign In
                 </button>
               </div>
             </div>

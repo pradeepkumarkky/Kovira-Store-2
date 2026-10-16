@@ -2367,6 +2367,54 @@ app.post('/api/customer/login', async (req: Request, res: Response) => {
   });
 });
 
+app.post('/api/customer/reset-password', async (req: Request, res: Response) => {
+  const { email, newPassword } = req.body || {};
+  if (!email) {
+    return res.status(400).json({ success: false, error: 'Email address is required to reset password.' });
+  }
+  const cleanEmail = String(email).toLowerCase().trim();
+  const supabase = getSupabase(true) || getSupabase(false);
+
+  if (newPassword && String(newPassword).trim().length >= 6) {
+    const cleanPassword = String(newPassword).trim();
+    const passwordHash = crypto.createHash('sha256').update(cleanPassword).digest('hex');
+
+    if (supabase) {
+      try {
+        const { data: updatedUser, error: updateErr } = await supabase
+          .from('customer_users')
+          .update({
+            password_hash: passwordHash,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('email', cleanEmail)
+          .select('id, name, email')
+          .maybeSingle();
+
+        if (updateErr) {
+          return res.status(500).json({ success: false, error: updateErr.message });
+        }
+        if (!updatedUser) {
+          return res.status(404).json({ success: false, error: 'No account found with this email address.' });
+        }
+        return res.json({ success: true, message: 'Password updated successfully! You can now log in.', user: updatedUser });
+      } catch (err: any) {
+        return res.status(500).json({ success: false, error: err.message });
+      }
+    }
+  }
+
+  if (supabase) {
+    try {
+      await supabase.auth.resetPasswordForEmail(cleanEmail);
+    } catch (err: any) {
+      console.warn('Supabase reset email notice:', err?.message);
+    }
+  }
+
+  return res.json({ success: true, message: `Password reset instructions sent to ${cleanEmail}.` });
+});
+
 app.get('/api/customer/profile', (req: Request, res: Response) => {
   const email = String(req.query.email || '').toLowerCase().trim();
   if (!email) {
@@ -4284,8 +4332,21 @@ const handleWebLinkUpload = async (req: Request, res: Response) => {
   });
 };
 
-app.post('/api/dropship/deodap/import-url', handleWebLinkUpload);
-app.post('/api/dropship/web-link/upload', handleWebLinkUpload);
+import importUrlHandler from './api/dropship/deodap/import-url';
+app.all('/api/dropship/deodap/import-url', (req: Request, res: Response) => {
+  return importUrlHandler(req, res);
+});
+app.all('/api/dropship/web-link/upload', (req: Request, res: Response) => {
+  return importUrlHandler(req, res);
+});
+
+import syncCatalogHandler from './api/dropship/deodap/sync-catalog';
+app.all('/api/dropship/deodap/sync-catalog', (req: Request, res: Response) => {
+  return syncCatalogHandler(req, res);
+});
+app.all('/api/dropship/sync-catalog', (req: Request, res: Response) => {
+  return syncCatalogHandler(req, res);
+});
 
 // 4e. LINK DEODAP BESTSELLERS TO ADMIN PANEL FIRST (With 40% margin, staged as drafts)
 app.post('/api/dropship/deodap/link-admin', (req: Request, res: Response) => {

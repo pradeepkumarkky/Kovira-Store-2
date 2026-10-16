@@ -1,5 +1,6 @@
 import registerHandler from './customer/register';
 import loginHandler from './customer/login';
+import resetPasswordHandler from './customer/reset-password';
 import ordersHandler from './customer/orders';
 import addressHandler from './customer/address';
 import profileHandler from './customer/profile';
@@ -7,6 +8,8 @@ import adminLoginHandler from './admin/login';
 import importUrlHandler from './dropship/deodap/import-url';
 import deodapManageHandler from './dropship/deodap/manage';
 import directBestsellersHandler from './dropship/deodap/direct-bestsellers';
+import syncCatalogHandler from './dropship/deodap/sync-catalog';
+import dropshipGatewayHandler from './dropship/gateway';
 import uploadedLinksHandler from './dropship/uploaded-links';
 import productsHandler from './products';
 import checkoutHandler from './checkout';
@@ -40,6 +43,10 @@ export default async function handler(req: any, res: any) {
     return loginHandler(req, res);
   }
 
+  if (pathname.endsWith('/customer/reset-password') || pathname === '/api/customer/reset-password') {
+    return resetPasswordHandler(req, res);
+  }
+
   if (pathname.endsWith('/customer/orders') || pathname === '/api/customer/orders') {
     return ordersHandler(req, res);
   }
@@ -54,6 +61,13 @@ export default async function handler(req: any, res: any) {
 
   if (pathname.endsWith('/admin/login') || pathname === '/api/admin/login') {
     return adminLoginHandler(req, res);
+  }
+
+  if (
+    pathname.includes('/dropship/deodap/sync-catalog') ||
+    pathname.includes('/dropship/sync-catalog')
+  ) {
+    return syncCatalogHandler(req, res);
   }
 
   if (
@@ -78,6 +92,14 @@ export default async function handler(req: any, res: any) {
 
   if (pathname.includes('/dropship/uploaded-links')) {
     return uploadedLinksHandler(req, res);
+  }
+
+  if (
+    pathname.includes('/dropship/settings') ||
+    pathname.includes('/dropship/test-connection') ||
+    pathname.includes('/dropship/import')
+  ) {
+    return dropshipGatewayHandler(req, res);
   }
 
   return res.status(200).json({

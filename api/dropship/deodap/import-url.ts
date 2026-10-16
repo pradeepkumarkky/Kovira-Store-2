@@ -1,6 +1,7 @@
 import { getSupabase } from '../../_supabase';
 import { DEODAP_CATEGORIES_DATA } from '../../../src/data/deodapCategories';
 import { DROPSHIP_CATALOG_ITEMS } from '../../../src/data/dropshipSuppliersData';
+import { scrapeDeoDapCollection, scrapeDeoDapSingleProduct } from './cheerio-scraper';
 
 function detectSupplier(inputUrl: string) {
   const u = (inputUrl || '').toLowerCase();
@@ -189,75 +190,48 @@ export default async function handler(req: any, res: any) {
       const collHandle = collectionMatch && collectionMatch[1] 
         ? collectionMatch[1].replace(/\.json$/i, '') 
         : 'best-selling-products';
-      const pageMatch = cleanUrl.match(/[?&]page=([0-9]+)/i);
-      const pageNum = pageMatch ? pageMatch[1] : '1';
 
-      let rawProducts: any[] = [];
+      // 1. Scrape products from collection HTML page via Cheerio
+      const scrapedCollection = await scrapeDeoDapCollection(cleanUrl);
 
-      // Attempt remote JSON fetch with strict 2.5s timeout
-      const fetchUrl = `https://deodap.in/collections/${encodeURIComponent(collHandle)}/products.json?limit=250&page=${pageNum}`;
-      const remoteData = await safeFetchJson(fetchUrl, 2500);
-      if (remoteData && Array.isArray(remoteData.products) && remoteData.products.length > 0) {
-        rawProducts = remoteData.products;
-      }
-
-      // If remote collection returned no products or was blocked/timed out, provide curated items instantly
-      if (!Array.isArray(rawProducts) || rawProducts.length === 0) {
-        rawProducts = getCuratedCollectionProducts(collHandle);
-      }
-
-      const importedProducts = rawProducts.map((p: any) => {
-        const handle = p.handle || (p.title ? p.title.toLowerCase().replace(/[^a-z0-9]+/g, '-') : `item-${Date.now()}`);
-        const mainVariant = p.variants?.[0] || {};
-        const wholesaleINR = Number(mainVariant.price || p.wholesaleINR || p.costINR || p.price) || 150;
+      const importedProducts = scrapedCollection.map((p) => {
+        const wholesaleINR = p.priceINR || 150;
         const marginAmountINR = Math.round(wholesaleINR * (marginPercent / 100));
         const retailINR = wholesaleINR + marginAmountINR;
         const costUSD = Number((wholesaleINR / INR_RATE).toFixed(2));
-        const priceUSD = Number((costUSD * effectiveMarkup).toFixed(2));
-        const sku = mainVariant.sku || p.sku || `DD-${handle.slice(0, 12).toUpperCase()}`;
-
-        const cleanTitle = (p.title || p.name || 'Curated Essential').replace(/^(DeoDap|Deodap)\s*[-–—:]*\s*/gi, '').trim();
-
-        // Extract image
-        let imageSrc = 'https://images.unsplash.com/photo-1588854337236-6889d631faa8?w=800&auto=format&fit=crop&q=80';
-        if (Array.isArray(p.images) && p.images.length > 0) {
-          const first = p.images[0];
-          imageSrc = typeof first === 'string' ? first : (first.src || first.url || imageSrc);
-        } else if (p.image) {
-          imageSrc = typeof p.image === 'string' ? p.image : (p.image.src || p.image.url || imageSrc);
-        }
-        if (imageSrc.startsWith('//')) {
-          imageSrc = `https:${imageSrc}`;
-        }
+        const priceUSD = Number((retailINR / INR_RATE).toFixed(2));
+        const imageSrc = p.images[0] || 'https://images.unsplash.com/photo-1588854337236-6889d631faa8?w=800&auto=format&fit=crop&q=80';
 
         return {
-          id: `prod_live_${p.id || Date.now()}_${Math.floor(Math.random() * 1000)}`,
-          title: cleanTitle,
-          description: cleanHtml(p.body_html || p.description).replace(/DeoDap/gi, 'Curated Direct') || `Direct factory wholesale product inspected and dispatched PAN-India.`,
-          category: customCategory || p.product_type || p.category || 'Lifestyle Essentials',
+          id: `prod_live_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
+          title: p.title,
+          description: p.description || `Direct factory wholesale product inspected and dispatched PAN-India.`,
+          category: customCategory || p.category || 'Lifestyle Essentials',
           priceUSD,
           costUSD,
-          stock: mainVariant.inventory_quantity > 0 ? mainVariant.inventory_quantity : 120,
+          stock: p.stock > 0 ? p.stock : 120,
           reorderPoint: 20,
           reorderQuantity: 50,
-          sku,
+          sku: p.sku,
           supplierId: 'sup_deodap',
           supplierName: detectedSupplier.name,
           supplierLeadDays: 2,
-          supplierPlatform: detectedSupplier.platform,
-          supplierLink: `https://${detectedSupplier.domain}/products/${handle}`,
-          images: [imageSrc],
+          supplierPlatform: detectedSupplier.platform || 'DeoDap',
+          supplierLink: p.productUrl,
+          images: p.images.length > 0 ? p.images : [imageSrc],
           image: imageSrc,
           rating: 4.8,
           reviewsCount: Math.floor(25 + Math.random() * 70),
           tags: ['Factory Direct', 'Web Link Upload', detectedSupplier.platform, 'Made in India'],
-          weightKg: Number(mainVariant.grams ? mainVariant.grams / 1000 : 0.45),
+          weightKg: 0.45,
           isDropshipped: true,
           featured: true,
           isPublished: Boolean(publishImmediately !== false),
           marginPercent,
           wholesaleINR,
           deliveryChargeINR: 49,
+          last_synced: new Date().toISOString(),
+          external_product_id: p.externalProductId || p.handle,
           liveSync: {
             lastSyncTimestamp: new Date().toISOString(),
             supplierStatus: 'In Stock & Verified',
@@ -266,6 +240,8 @@ export default async function handler(req: any, res: any) {
             estimatedDaysMax: 3,
             autoFulfillment: true,
             hubPincode: '360002',
+            supplierLink: p.productUrl,
+            supplierPlatform: detectedSupplier.platform || 'DeoDap',
           },
         };
       });
@@ -289,7 +265,7 @@ export default async function handler(req: any, res: any) {
             last_synced_at: new Date().toISOString(),
           }, { onConflict: 'url' });
 
-          const batchToInsert = importedProducts.slice(0, 50).map((prod) => ({
+          const batchToInsert = importedProducts.slice(0, 60).map((prod) => ({
             id: prod.id,
             title: prod.title,
             description: prod.description,
@@ -298,6 +274,7 @@ export default async function handler(req: any, res: any) {
             cost_usd: prod.costUSD,
             stock: prod.stock,
             sku: prod.sku,
+            supplier_id: prod.supplierId,
             supplier_name: prod.supplierName,
             supplier_platform: prod.supplierPlatform,
             supplier_link: prod.supplierLink,
@@ -310,6 +287,8 @@ export default async function handler(req: any, res: any) {
             margin_percent: prod.marginPercent,
             wholesale_inr: prod.wholesaleINR,
             delivery_charge_inr: 49,
+            last_synced: prod.last_synced,
+            external_product_id: prod.external_product_id,
             live_sync: prod.liveSync,
           }));
 
@@ -329,75 +308,68 @@ export default async function handler(req: any, res: any) {
         product: importedProducts[0],
         isPublished: Boolean(publishImmediately !== false),
         marginPercent,
-        message: `Successfully uploaded ${importedProducts.length} bestsellers from ${detectedSupplier.name} with ${marginPercent}% margin!`,
+        message: `Successfully uploaded ${importedProducts.length} items from ${detectedSupplier.name} with ${marginPercent}% margin!`,
       });
     }
 
-    // 2. SINGLE PRODUCT LINK IMPORT
+    // 2. SINGLE PRODUCT LINK IMPORT VIA CHEERIO HTML SCRAPING
     const productMatch = cleanUrl.match(/\/products\/([a-zA-Z0-9_\-\.]+)/i);
+    const handle = productMatch && productMatch[1]
+      ? productMatch[1].replace(/\.json$/i, '').split('?')[0]
+      : 'direct-dropship-product';
+
     let cleanTitle = '';
     let wholesaleINR = 180;
     let sku = '';
     let images: string[] = [];
     let description = '';
 
-    const handle = productMatch && productMatch[1]
-      ? productMatch[1].replace(/\.json$/i, '').split('?')[0]
-      : 'direct-dropship-product';
-
-    // First check if product exists in our catalog
-    const slugQuery = handle.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-    const catalogMatch = DROPSHIP_CATALOG_ITEMS.find((c) =>
-      c.sku.toLowerCase().includes(slugQuery) ||
-      c.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').includes(slugQuery)
-    );
-
-    if (catalogMatch) {
-      cleanTitle = catalogMatch.title;
-      wholesaleINR = Math.round((catalogMatch.costUSD || 2) * 86.5);
-      sku = catalogMatch.sku;
-      images = catalogMatch.images && catalogMatch.images.length > 0 ? catalogMatch.images : ['https://images.unsplash.com/photo-1588854337236-6889d631faa8?w=800&auto=format&fit=crop&q=80'];
-      description = catalogMatch.description;
-    } else {
-      // Try fast Shopify JSON fetch
-      if (cleanUrl.includes('deodap.in')) {
-        const fetchUrl = `https://deodap.in/products/${encodeURIComponent(handle)}.json`;
-        const data = await safeFetchJson(fetchUrl, 2500);
-        if (data) {
-          const p = data.product || (data.products ? data.products[0] : null);
-          if (p) {
-            const mainVariant = p.variants?.[0] || {};
-            wholesaleINR = Number(mainVariant.price || p.wholesaleINR || p.price) || 150;
-            cleanTitle = (p.title || p.name || '').replace(/^(DeoDap|Deodap)\s*[-–—:]*\s*/gi, '').trim();
-            sku = mainVariant.sku || p.sku || `DD-${handle.slice(0, 12).toUpperCase()}`;
-            if (Array.isArray(p.images) && p.images.length > 0) {
-              images = p.images.map((im: any) => typeof im === 'string' ? im : im.src).filter(Boolean);
-            }
-            description = cleanHtml(p.body_html || p.description);
-          }
-        }
+    // First try Cheerio HTML scraping on the product URL
+    if (cleanUrl.includes('deodap.in') || cleanUrl.includes('/products/')) {
+      const scrapedProduct = await scrapeDeoDapSingleProduct(cleanUrl);
+      if (scrapedProduct) {
+        cleanTitle = scrapedProduct.title;
+        wholesaleINR = scrapedProduct.priceINR || 180;
+        sku = scrapedProduct.sku;
+        images = scrapedProduct.images;
+        description = scrapedProduct.description;
       }
     }
 
-    // Fallback title and details from slug if remote gave nothing
+    // If Cheerio scrape did not resolve title, check catalog or fallback
     if (!cleanTitle) {
-      const formattedSlug = handle.split('-').map((s) => s.charAt(0).toUpperCase() + s.slice(1)).join(' ');
-      cleanTitle = formattedSlug || 'Curated Factory Product';
+      const slugQuery = handle.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+      const catalogMatch = DROPSHIP_CATALOG_ITEMS.find((c) =>
+        c.sku.toLowerCase().includes(slugQuery) ||
+        c.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').includes(slugQuery)
+      );
+
+      if (catalogMatch) {
+        cleanTitle = catalogMatch.title;
+        wholesaleINR = Math.round((catalogMatch.costUSD || 2) * 86.5);
+        sku = catalogMatch.sku;
+        images = catalogMatch.images && catalogMatch.images.length > 0 ? catalogMatch.images : ['https://images.unsplash.com/photo-1588854337236-6889d631faa8?w=800&auto=format&fit=crop&q=80'];
+        description = catalogMatch.description;
+      } else {
+        const formattedSlug = handle.split('-').map((s) => s.charAt(0).toUpperCase() + s.slice(1)).join(' ');
+        cleanTitle = formattedSlug || 'Curated Factory Product';
+        sku = `DD-${handle.slice(0, 14).toUpperCase()}`;
+        images = ['https://images.unsplash.com/photo-1588854337236-6889d631faa8?w=800&auto=format&fit=crop&q=80'];
+        description = `Direct wholesale item sourced PAN-India via ${detectedSupplier.name}. Inspected for premium quality and prompt dispatch.`;
+      }
     }
+
     if (!sku) {
       sku = `DD-${Date.now().toString().slice(-6)}`;
     }
     if (images.length === 0) {
       images = ['https://images.unsplash.com/photo-1588854337236-6889d631faa8?w=800&auto=format&fit=crop&q=80'];
     }
-    if (!description) {
-      description = `Direct wholesale item sourced PAN-India via ${detectedSupplier.name}. Inspected for premium quality and prompt dispatch.`;
-    }
 
     const marginAmountINR = Math.round(wholesaleINR * (marginPercent / 100));
     const retailINR = wholesaleINR + marginAmountINR;
     const costUSD = Number((wholesaleINR / INR_RATE).toFixed(2));
-    const priceUSD = Number((costUSD * effectiveMarkup).toFixed(2));
+    const priceUSD = Number((retailINR / INR_RATE).toFixed(2));
 
     const newProd = {
       id: `prod_imp_${Date.now()}`,
@@ -408,8 +380,9 @@ export default async function handler(req: any, res: any) {
       costUSD,
       stock: 120,
       sku,
+      supplierId: 'sup_deodap',
       supplierName: detectedSupplier.name,
-      supplierPlatform: detectedSupplier.platform,
+      supplierPlatform: detectedSupplier.platform || 'DeoDap',
       supplierLink: cleanUrl,
       images,
       image: images[0],
@@ -421,6 +394,8 @@ export default async function handler(req: any, res: any) {
       marginPercent,
       wholesaleINR,
       deliveryChargeINR: 49,
+      last_synced: new Date().toISOString(),
+      external_product_id: handle,
       liveSync: {
         lastSyncTimestamp: new Date().toISOString(),
         supplierStatus: 'Active & Verified',
@@ -428,6 +403,8 @@ export default async function handler(req: any, res: any) {
         estimatedDaysMin: 2,
         estimatedDaysMax: 3,
         autoFulfillment: true,
+        supplierLink: cleanUrl,
+        supplierPlatform: detectedSupplier.platform || 'DeoDap',
       },
     };
 
@@ -442,6 +419,7 @@ export default async function handler(req: any, res: any) {
           cost_usd: newProd.costUSD,
           stock: newProd.stock,
           sku: newProd.sku,
+          supplier_id: newProd.supplierId,
           supplier_name: newProd.supplierName,
           supplier_platform: newProd.supplierPlatform,
           supplier_link: newProd.supplierLink,
@@ -454,6 +432,8 @@ export default async function handler(req: any, res: any) {
           margin_percent: newProd.marginPercent,
           wholesale_inr: newProd.wholesaleINR,
           delivery_charge_inr: 49,
+          last_synced: newProd.last_synced,
+          external_product_id: newProd.external_product_id,
           live_sync: newProd.liveSync,
         }, { onConflict: 'sku' });
       } catch (dbErr: any) {

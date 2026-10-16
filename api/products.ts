@@ -144,7 +144,10 @@ export default async function handler(req: any, res: any) {
       // First try query with is_published filter if not admin
       if (!includeDrafts) {
         try {
-          const res = await supabase.from('products').select('*').or('is_published.is.null,is_published.eq.true');
+          const res = await supabase
+            .from('products')
+            .select('*')
+            .or('is_published.is.null,is_published.eq.true');
           data = res.data;
           error = res.error;
         } catch (e: any) {
@@ -152,11 +155,11 @@ export default async function handler(req: any, res: any) {
         }
       }
 
-      // If error (e.g. column is_published does not exist) or includeDrafts is true, query all products
-      if (error || !data || includeDrafts) {
+      // If error (e.g. column is_published does not exist), 0 products returned, or includeDrafts is true, query all products
+      if (error || !data || data.length === 0 || includeDrafts) {
         try {
           const res = await supabase.from('products').select('*');
-          if (!res.error && res.data) {
+          if (!res.error && res.data && res.data.length > 0) {
             data = res.data;
             error = null;
           }

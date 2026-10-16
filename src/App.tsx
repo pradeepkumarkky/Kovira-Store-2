@@ -347,16 +347,23 @@ export default function App() {
         fetch('/api/dresses').then((r) => r.json()).catch(() => ({ success: false })),
       ]);
 
+      let resolvedProducts: Product[] = [];
+
       if (prodRes && Array.isArray(prodRes.products) && prodRes.products.length > 0) {
-        setProducts(prodRes.products);
+        resolvedProducts = prodRes.products;
+      } else if (adminProdRes && Array.isArray(adminProdRes.products) && adminProdRes.products.length > 0) {
+        resolvedProducts = adminProdRes.products;
+      }
+
+      if (resolvedProducts.length > 0) {
+        setProducts(resolvedProducts);
       } else {
         const clientSupabase = getClientSupabase();
         if (clientSupabase) {
           try {
             const { data: supaRows } = await clientSupabase
               .from('products')
-              .select('*')
-              .or('is_published.is.null,is_published.eq.true');
+              .select('*');
             if (supaRows && Array.isArray(supaRows) && supaRows.length > 0) {
               const mapped: Product[] = supaRows.map((row: any) => {
                 const priceUSD = Number(row.price_usd || row.priceUSD || row.price || 15);
@@ -388,6 +395,8 @@ export default function App() {
                   supplierId: String(row.supplier_id || 'sup_deodap'),
                   supplierName: String(row.supplier_name || 'Kovira Logistics Hub'),
                   supplierLeadDays: Number(row.supplier_lead_days || 2),
+                  supplierPlatform: String(row.supplier_platform || 'DeoDap'),
+                  supplierLink: String(row.supplier_link || ''),
                   images: imgs,
                   rating: Number(row.rating || 4.8),
                   reviewsCount: Number(row.reviews_count || 45),
@@ -402,12 +411,14 @@ export default function App() {
                 };
               });
               setProducts(mapped);
+              setAdminProducts(mapped);
             }
           } catch (supaErr) {
             console.warn('Client Supabase direct fetch notice:', supaErr);
           }
         }
       }
+
       if (adminProdRes && Array.isArray(adminProdRes.products) && adminProdRes.products.length > 0) {
         setAdminProducts(adminProdRes.products);
       }
@@ -932,29 +943,58 @@ export default function App() {
 
         {/* Product Display (Grid or List View) */}
         {isLoading ? (
-          <div className="py-24 text-center space-y-4">
-            <div className="w-12 h-12 mx-auto border-3 border-slate-200 border-t-slate-900 rounded-full animate-spin" />
-            <p className="text-xs font-medium text-slate-500">Loading Kovira catalog...</p>
+          <div
+            className={
+              viewMode === 'grid'
+                ? 'grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5 sm:gap-4 md:gap-6'
+                : 'flex flex-col gap-3 sm:gap-4'
+            }
+          >
+            {[...Array(8)].map((_, i) => (
+              <div
+                key={i}
+                className="bg-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl p-3 sm:p-4 animate-pulse space-y-3"
+              >
+                <div className="w-full aspect-square bg-slate-800 rounded-xl" />
+                <div className="h-4 bg-slate-800 rounded w-3/4" />
+                <div className="h-3 bg-slate-800/60 rounded w-1/2" />
+                <div className="flex justify-between items-center pt-2">
+                  <div className="h-5 bg-slate-800 rounded w-1/3" />
+                  <div className="h-8 bg-slate-800 rounded-xl w-20" />
+                </div>
+              </div>
+            ))}
           </div>
         ) : filteredProducts.length === 0 ? (
-          <div className="py-20 text-center space-y-4 bg-white border border-slate-200 rounded-3xl p-10 max-w-lg mx-auto shadow-sm">
-            <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center mx-auto text-slate-400">
-              <Package className="w-8 h-8" />
+          <div className="py-20 text-center space-y-4 bg-slate-900 border border-slate-800 rounded-3xl p-10 max-w-lg mx-auto shadow-sm">
+            <div className="w-16 h-16 rounded-full bg-slate-800 flex items-center justify-center mx-auto text-slate-400">
+              <Package className="w-8 h-8 text-cyan-400" />
             </div>
-            <h3 className="text-lg font-bold text-slate-900">No products match your criteria</h3>
-            <p className="text-xs text-slate-500 leading-relaxed">
-              We couldn't find any products matching "{searchQuery}". Try searching for another keyword or reset the filter.
+            <h3 className="text-lg font-bold text-white">No products found</h3>
+            <p className="text-xs text-slate-400 leading-relaxed">
+              {searchQuery
+                ? `We couldn't find any products matching "${searchQuery}".`
+                : 'All products are currently being synchronized with live inventory.'}
             </p>
-            <button
-              onClick={() => {
-                setSearchQuery('');
-                setSelectedCategory('All');
-                setInStockOnly(false);
-              }}
-              className="bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold px-5 py-2.5 rounded-xl transition-all"
-            >
-              Reset Filters
-            </button>
+            <div className="flex items-center justify-center gap-2 pt-2">
+              <button
+                onClick={() => {
+                  setSearchQuery('');
+                  setSelectedCategory('All');
+                  setActiveCollection('all');
+                  setInStockOnly(false);
+                }}
+                className="bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition-all cursor-pointer"
+              >
+                Reset Filters
+              </button>
+              <button
+                onClick={() => loadInitialData(customerLocation.country)}
+                className="bg-cyan-400 hover:bg-cyan-300 text-slate-950 text-xs font-black px-4 py-2.5 rounded-xl transition-all cursor-pointer shadow-md"
+              >
+                Refresh Products
+              </button>
+            </div>
           </div>
         ) : (
           <div

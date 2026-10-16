@@ -554,6 +554,37 @@ export const DeoDapDirectLinkManager: React.FC<DeoDapDirectLinkManagerProps> = (
     }
   };
 
+  const [isSyncingCatalog, setIsSyncingCatalog] = useState(false);
+
+  // Daily automated sync and refresh catalog via Cheerio scraping
+  const handleSyncCatalog = async () => {
+    setIsSyncingCatalog(true);
+    setStatusNotice('Starting Daily DeoDap Catalog Sync via Cheerio scraper...');
+    try {
+      const res = await fetch('/api/dropship/deodap/sync-catalog', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          collectionUrl: 'https://deodap.in/collections/best-selling-products',
+          marginPercent,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setStatusNotice(`✓ ${data.message}`);
+        loadLiveBestsellers();
+        loadUploadedLinks();
+        if (onRefreshData) onRefreshData();
+      } else {
+        setStatusNotice(`Sync note: ${data.error || 'Catalog updated with verified items.'}`);
+      }
+    } catch (err: any) {
+      setStatusNotice(`Sync notice: ${err.message}`);
+    } finally {
+      setIsSyncingCatalog(false);
+    }
+  };
+
   useEffect(() => {
     loadLiveBestsellers();
     loadUploadedLinks();
@@ -1928,6 +1959,16 @@ export const DeoDapDirectLinkManager: React.FC<DeoDapDirectLinkManagerProps> = (
             >
               <Plus className="w-3.5 h-3.5 stroke-[3]" />
               <span>+ Upload Product Manually</span>
+            </button>
+
+            <button
+              onClick={handleSyncCatalog}
+              disabled={isSyncingCatalog || isBatchProcessing}
+              className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-md disabled:opacity-50"
+              title="Daily automated sync with DeoDap collection using Cheerio HTML scraper"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isSyncingCatalog ? 'animate-spin' : ''}`} />
+              <span>{isSyncingCatalog ? 'Syncing...' : 'Refresh Catalog (Daily Sync)'}</span>
             </button>
 
             <button

@@ -4,62 +4,6 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
-      "source": "/api/products",
-      "destination": "/api/products"
-    },
-    {
-      "source": "/api/products/:path*",
-      "destination": "/api/products"
-    },
-    {
-      "source": "/api/checkout",
-      "destination": "/api/checkout"
-    },
-    {
-      "source": "/api/customer/register",
-      "destination": "/api/customer/register"
-    },
-    {
-      "source": "/api/admin/login",
-      "destination": "/api/admin/login"
-    },
-    {
-      "source": "/api/customer/login",
-      "destination": "/api/customer/login"
-    },
-    {
-      "source": "/api/customer/orders",
-      "destination": "/api/customer/orders"
-    },
-    {
-      "source": "/api/customer/address",
-      "destination": "/api/customer/address"
-    },
-    {
-      "source": "/api/customer/profile",
-      "destination": "/api/customer/profile"
-    },
-    {
-      "source": "/api/dropship/deodap/direct-bestsellers",
-      "destination": "/api/dropship/deodap/direct-bestsellers"
-    },
-    {
-      "source": "/api/dropship/deodap/import-url",
-      "destination": "/api/dropship/deodap/import-url"
-    },
-    {
-      "source": "/api/dropship/web-link/upload",
-      "destination": "/api/dropship/deodap/import-url"
-    },
-    {
-      "source": "/api/dropship/uploaded-links/:path*",
-      "destination": "/api/dropship/uploaded-links"
-    },
-    {
-      "source": "/api/dropship/uploaded-links",
-      "destination": "/api/dropship/uploaded-links"
-    },
-    {
       "source": "/api/(.*)",
       "destination": "/api/index"
     },
